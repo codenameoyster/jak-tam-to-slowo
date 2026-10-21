@@ -64,6 +64,10 @@ a.word { display: block; color: var(--accent); min-height: 48px; padding: 10px 0
 .study-feedback.again { background: #fff0f3; }
 .study-correction { font-size: 1.5rem; font-weight: 700; }
 .study-recovery { margin-top: 24px; }
+.dictation { margin-bottom: 20px; }
+.dictation-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.dictation .hint { margin: 8px 0 0; }
+.dictation .error { margin: 8px 0 0; }
 @media (min-width: 600px) {
 	.app { padding-top: 64px; }
 	.card { padding: 36px 32px; }

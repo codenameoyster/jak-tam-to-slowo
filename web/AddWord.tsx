@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import type { Card, CardContent, CardPage, DraftResult, Language } from '../shared/types';
 import { api, ApiError } from './api';
 import { CardFields } from './CardFields';
+import { Dictation } from './Dictation';
 
 interface Draft {
 	id: string;
@@ -23,6 +24,7 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy, onExpired }: { 
 	const [saved, setSaved] = useState<Card | null>(null);
 	const [matches, setMatches] = useState<Card[]>([]);
 	const [searchError, setSearchError] = useState('');
+	const [dictationId, setDictationId] = useState(0);
 	const query = draft?.text.trim() ?? '';
 	const locked = busy || !!draft?.submission;
 
@@ -107,6 +109,7 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy, onExpired }: { 
 				<label htmlFor="draft-text">Слово или выражение</label>
 				<input id="draft-text" lang={draft?.language ?? 'pl'} value={draft?.text ?? ''} maxLength={200} required onChange={event => change({ text: event.target.value, meaningRu: undefined, choices: [], card: undefined })} />
 			</fieldset>
+			<Dictation key={dictationId} language={draft?.language ?? 'pl'} disabled={locked} onExpired={onExpired} onText={text => change({ text: draft?.text ? `${draft.text} ${text}` : text, meaningRu: undefined, choices: [], card: undefined })} />
 			<button disabled={locked || !query}>Подготовить карточку</button>
 		</form>
 		{searchError && <p className="hint" role="status">{searchError}</p>}
@@ -133,6 +136,6 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy, onExpired }: { 
 		{storageError && <p className="error" role="alert">{storageError}</p>}
 		{busy && <p role="status">Подождите…</p>}
 		{saved && <><p role="status">Карточка сохранена.</p><a className="word" href="#words" onClick={event => { event.preventDefault(); onOpen(saved); }}>Открыть в «Словах»</a></>}
-		{draft && <button className="discard" disabled={locked} onClick={() => { setDraft(null); setError(''); setSaved(null); }}>Удалить черновик</button>}
+		{draft && <button className="discard" disabled={locked} onClick={() => { setDraft(null); setDictationId(value => value + 1); setError(''); setSaved(null); }}>Удалить черновик</button>}
 	</section>;
 }

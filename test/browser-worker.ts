@@ -1,4 +1,4 @@
-import worker from '../src/index';
+import worker, { type Env } from '../src/index';
 import { ONION_DRAFT, WORD_DRAFT } from './fixtures';
 import { createOpenAI, responseStream } from './openai';
 
@@ -17,4 +17,15 @@ globalThis.fetch = async (input, init) => {
 	return upstream.fetch(input, init);
 };
 
-export default worker;
+export default {
+	fetch(request: Request, env: Env) {
+		const AI = new Proxy(env.AI, { get(target, key) {
+			if (key === 'run') return async (model: string, input: { audio: string; language: string; task: string; vad_filter: boolean }) => {
+				if (model !== '@cf/openai/whisper-large-v3-turbo' || input.audio !== 'AAH+/w==' || input.task !== 'transcribe' || !input.vad_filter) throw new Error('Unexpected test transcription input.');
+				return { text: input.language === 'pl' ? ' słowo ' : ' слово ' };
+			};
+			return Reflect.get(target, key);
+		} });
+		return worker.fetch(request, { ...env, AI });
+	},
+};

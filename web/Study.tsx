@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { Direction, User } from '../shared/types';
 import { useStudy } from './useStudy';
+import { Dictation } from './Dictation';
 
 export function Study({ user, onDirection, onBusy, onExpired }: {
 	user: User; onDirection(direction: Direction): void; onBusy(busy: boolean): void; onExpired(): void;
@@ -37,6 +38,7 @@ export function Study({ user, onDirection, onBusy, onExpired }: {
 		{study.state !== 'feedback' && (current || study.locked) && <form onSubmit={event => { event.preventDefault(); void study.check(); }}>
 			<label htmlFor="study-answer">{polish ? 'Ответ по-польски' : 'Ответ по-русски'}</label>
 			<input ref={input} id="study-answer" lang={target} maxLength={500} autoComplete="off" value={study.answer} disabled={study.locked} onChange={event => study.setAnswer(event.target.value)} />
+			<Dictation key={`${current?.id}:${current?.version}`} language={target} disabled={study.locked || study.state !== 'answering'} onExpired={onExpired} onText={text => study.setAnswer(study.answer ? `${study.answer} ${text}` : text)} />
 			<div className="study-actions">
 				<button className="primary" type="submit" disabled={study.locked || study.state !== 'answering'}>Проверить</button>
 				<button type="button" disabled={study.locked || study.state !== 'answering'} onClick={() => void study.reveal()}>Показать ответ</button>
