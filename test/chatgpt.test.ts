@@ -4,6 +4,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { login, request } from './client';
 import { USER_A, USER_B } from './fixtures';
 import { CALLBACK, createOpenAI, SCOPE } from './openai';
+import { accessToken } from '../src/chatgpt';
 
 let provider: Awaited<ReturnType<typeof createOpenAI>>;
 beforeEach(async () => { provider = await createOpenAI(); vi.spyOn(globalThis, 'fetch').mockImplementation(provider.fetch); });
@@ -261,5 +262,133 @@ it('keeps the first verified registration when two new sign-ins finish', async (
 	expect((await finish(cookie, first)).status).toBe(200);
 	const before = await record();
 	expect((await finish(cookie, second)).status).toBe(400);
+	expect(await record()).toEqual(before);
+});
+
+async function expire() {
+	await env.DB.prepare('UPDATE ai_connections SET expires_at=?,refresh_after=NULL WHERE user_id=?').bind(Date.now() - 1, USER_A.id).run();
+}
+async function decrypt(row: Record<string, string | number | null>, field: string) {
+	const key = await crypto.subtle.importKey('raw', Uint8Array.from(atob(env.AI_TOKEN_KEY), char => char.charCodeAt(0)), 'AES-GCM', false, ['decrypt']);
+	const bytes = Uint8Array.from(atob(String(row[field])), char => char.charCodeAt(0));
+	return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.subarray(0, 12), additionalData: new TextEncoder().encode(`${USER_A.id}:${field}`) }, key, bytes.subarray(12)));
+}
+
+it('serializes renewal for one learner and saves the complete rotated token set', async () => {
+	const a = await login(USER_A.id), b = await login(USER_B.id);
+	await connect(a); await connect(b, 'b'); await expire();
+	await request('/api/ai/connection', { method: 'PATCH', cookie: a, body: { model: 'a-second' } });
+	const beforeA = (await record())!, beforeB = await record(USER_B.id);
+	const results = await Promise.all([accessToken(env, USER_A.id), accessToken(env, USER_A.id)]);
+	expect(results).toEqual([{ access: 'access-a-renewed', version: 2, model: 'a-second' }, { access: 'access-a-renewed', version: 2, model: 'a-second' }]);
+	expect(provider.refreshTokens).toEqual(['refresh-a']);
+	expect(await record(USER_B.id)).toEqual(beforeB);
+	const after = (await record())!;
+	expect(await decrypt(after, 'access_token')).toBe('access-a-renewed');
+	expect(await decrypt(after, 'refresh_token')).toBe('refresh-a-renewed');
+	expect(await decrypt(after, 'id_token')).not.toBe(await decrypt(beforeA, 'id_token'));
+	expect(after).toMatchObject({ scopes: SCOPE, version: 2, refresh_lease_until: null });
+	expect(after.expires_at).toBeGreaterThan(Date.now() + 3_500_000);
+	expect(after.refresh_after).toBeGreaterThan(Date.now());
+	const call = provider.calls.filter(call => call.url.endsWith('/oauth/token')).at(-1)!;
+	expect(Object.fromEntries(await call.formData())).toEqual({ grant_type: 'refresh_token', client_id: 'oaiapp_a', refresh_token: 'refresh-a', resource: 'https://api.openai.com/v1' });
+	expect(await accessToken(env, USER_A.id, 1)).toEqual(results[0]);
+	expect(provider.refreshTokens).toHaveLength(1);
+});
+
+it.each([
+	{ name: 'near expiry before the earliest refresh time', expiresIn: 10_000, stale: undefined, error: false },
+	{ name: 'expired before the earliest refresh time', expiresIn: -1, stale: undefined, error: true },
+	{ name: 'a rejected version before the earliest refresh time', expiresIn: 3_600_000, stale: 1, error: true },
+])('respects $name', async ({ expiresIn, stale, error }) => {
+	await connect(await login(USER_A.id));
+	await env.DB.prepare('UPDATE ai_connections SET expires_at=? WHERE user_id=?').bind(Date.now() + expiresIn, USER_A.id).run();
+	const before = await record();
+	if (error) await expect(accessToken(env, USER_A.id, stale)).rejects.toMatchObject({ status: 503, code: 'ai_unavailable' });
+	else expect(await accessToken(env, USER_A.id)).toEqual({ access: 'access-a', version: 1, model: 'a-first' });
+	expect(provider.refreshTokens).toHaveLength(0);
+	expect(await record()).toEqual(before);
+});
+
+it.each([
+	{ name: 'invalid grant', status: 400, body: { error: 'invalid_grant' }, cleared: true },
+	{ name: 'reused refresh token', status: 401, body: { error: { code: 'refresh_token_reused' } }, cleared: true },
+	{ name: 'temporary provider failure', status: 503, body: { error: 'temporarily_unavailable' }, cleared: false },
+	{ name: 'invalid client configuration', status: 400, body: { error: 'invalid_client' }, cleared: false },
+	{ name: 'missing rotated token', status: 200, body: { refresh_token: null }, cleared: false },
+	{ name: 'missing plan scope', status: 200, body: { scope: 'openid' }, cleared: false },
+	{ name: 'null scope', status: 200, body: { scope: null }, cleared: false },
+	{ name: 'invalid expiry', status: 200, body: { expires_in: -1 }, cleared: false },
+	{ name: 'invalid refresh time', status: 200, body: { earliest_refresh_at: 'invalid' }, cleared: false },
+])('handles $name without changing the other learner connection', async ({ status, body, cleared }) => {
+	await connect(await login(USER_A.id)); await connect(await login(USER_B.id), 'b'); await expire();
+	const beforeA = await record(), beforeB = await record(USER_B.id);
+	provider.refreshStatus = status; provider.refreshBody = body;
+	await expect(accessToken(env, USER_A.id)).rejects.toMatchObject(cleared ? { status: 409, code: 'ai_disconnected' } : { status: status === 200 ? 503 : status });
+	expect(await record(USER_B.id)).toEqual(beforeB);
+	if (cleared) expect(await record()).toMatchObject({ access_token: null, refresh_token: null, id_token: null, model: null, client_id: 'oaiapp_a', version: 2, refresh_lease_until: null });
+	else expect(await record()).toEqual(beforeA);
+});
+
+it.each([
+	{ name: 'disconnect during success', action: 'disconnect', terminal: false },
+	{ name: 'reconnect during success', action: 'reconnect', terminal: false },
+	{ name: 'reconnect during terminal failure', action: 'reconnect', terminal: true },
+	{ name: 'application logout during success', action: 'logout', terminal: false },
+])('preserves the connection lifecycle after $name', async ({ action, terminal }) => {
+	const cookie = await login(USER_A.id);
+	await connect(cookie); await expire();
+	const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+	vi.mocked(fetch).mockImplementation(async (input, init) => {
+		const request = new Request(input, init);
+		if (request.url.endsWith('/oauth/token') && (await request.clone().formData()).get('grant_type') === 'refresh_token') {
+			entered.resolve(); await release.promise;
+			if (terminal) return Response.json({ error: 'invalid_grant' }, { status: 400 });
+		}
+		return provider.fetch(input, init);
+	});
+	const pending = accessToken(env, USER_A.id);
+	const result = action === 'disconnect' ? expect(pending).rejects.toMatchObject({ status: 409, code: 'ai_disconnected' }) : expect(pending).resolves.toMatchObject({ access: action === 'reconnect' ? 'access-a' : 'access-a-renewed', version: 2 });
+	await entered.promise;
+	try {
+		if (action === 'reconnect') await connect(cookie);
+		else expect((await request(action === 'logout' ? '/api/session' : '/api/ai/connection', { method: 'DELETE', cookie })).ok).toBe(true);
+	} finally { release.resolve(); }
+	await result;
+	expect((await record())?.refresh_lease_until).toBeNull();
+	expect((await record())?.version).toBe(2);
+});
+
+it('bounds the wait for another Worker lease and recovers an expired lease', async () => {
+	await connect(await login(USER_A.id)); await expire();
+	await env.DB.prepare('UPDATE ai_connections SET refresh_lease_until=? WHERE user_id=?').bind(Date.now() + 60_000, USER_A.id).run();
+	const before = await record();
+	const wait = vi.spyOn(scheduler, 'wait').mockResolvedValue(undefined);
+	await expect(accessToken(env, USER_A.id)).rejects.toMatchObject({ status: 503, code: 'ai_unavailable' });
+	expect(provider.refreshTokens).toHaveLength(0);
+	expect(wait.mock.calls.length).toBeGreaterThan(0);
+	expect(wait.mock.calls.length).toBeLessThanOrEqual(25);
+	expect(await record()).toEqual(before);
+	await env.DB.prepare('UPDATE ai_connections SET refresh_lease_until=? WHERE user_id=?').bind(Date.now() - 1, USER_A.id).run();
+	expect(await accessToken(env, USER_A.id)).toMatchObject({ access: 'access-a-renewed', version: 2 });
+});
+
+it('retains optional ID and scope values and parses a replacement refresh time', async () => {
+	await connect(await login(USER_A.id)); await expire();
+	const before = (await record())!;
+	provider.refreshBody = { id_token: undefined, scope: undefined, earliest_refresh_at: '2099-01-01T00:00:00Z' };
+	expect(await accessToken(env, USER_A.id)).toMatchObject({ access: 'access-a-renewed' });
+	expect(await record()).toMatchObject({ id_token: before.id_token, scopes: SCOPE, refresh_after: 4_070_908_800_000 });
+});
+
+it.each([
+	{ name: 'another subject', claims: { sub: 'subject-other' } },
+	{ name: 'another client', claims: { aud: 'oaiapp_other' } },
+	{ name: 'expired ID token', claims: { exp: 1 } },
+])('rejects a renewed ID token for $name', async ({ claims }) => {
+	await connect(await login(USER_A.id)); await expire();
+	const before = await record();
+	provider.claims = claims;
+	await expect(accessToken(env, USER_A.id)).rejects.toMatchObject({ status: 503 });
 	expect(await record()).toEqual(before);
 });

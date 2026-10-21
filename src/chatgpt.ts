@@ -1,4 +1,5 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { waitUntil } from 'cloudflare:workers';
 import type { ConnectionView, User } from '../shared/types';
 import type { Env } from './index';
 import { requireSession } from './auth';
@@ -18,6 +19,7 @@ interface Connection {
 	user_id: string; client_id: string; host_id: string; issuer: string; subject: string; account_label: string;
 	access_token: string | null; refresh_token: string | null; id_token: string | null; scopes: string | null;
 	expires_at: number | null; refresh_after: number | null; model: string | null; models: string; version: number;
+	refresh_lease_until: number | null;
 }
 interface Attempt {
 	state: string; user_id: string; session_hash: string; nonce: string; verifier: string; redirect_uri: string;
@@ -50,13 +52,100 @@ function view(row: Connection | null): ConnectionView {
 	const connected = Boolean(row?.refresh_token);
 	return { connected, accountLabel: row?.account_label ?? null, model: connected ? row!.model : null, models: connected ? JSON.parse(row!.models) : [] };
 }
-async function providerFetch(url: string, init: RequestInit = {}): Promise<Response> {
-	try { return await fetch(url, { ...init, signal: AbortSignal.timeout(15_000), redirect: 'manual' }); }
+export async function providerFetch(url: string, init: RequestInit = {}): Promise<Response> {
+	try { return await fetch(url, { ...init, signal: init.signal ?? AbortSignal.timeout(15_000), redirect: 'manual' }); }
 	catch { throw unavailable(); }
 }
 async function json(response: Response): Promise<Record<string, unknown>> {
 	const value: unknown = await response.json().catch(() => null);
 	return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+export function providerError(status: number, body: Record<string, unknown>): HttpError {
+	const detail = body.error && typeof body.error === 'object' ? body.error as Record<string, unknown> : body;
+	const value = typeof body.error === 'string' ? body.error : detail.code;
+	const code = typeof value === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(value) ? value : undefined;
+	if (status === 200) {
+		switch (code) {
+			case 'subscription_sharing_usage_limit_exceeded': status = 429; break;
+			case 'subscription_sharing_invalid_user': status = 401; break;
+			case 'subscription_sharing_unsupported_capability': status = 400; break;
+			case 'subscription_sharing_user_not_eligible':
+			case 'subscription_sharing_route_not_supported':
+			case 'chatpass_v2_invalid_authorization_context':
+			case 'chatpass_v2_scope_not_authorized': status = 403; break;
+			default: status = 503;
+		}
+	}
+	const fallback = status === 429 ? 'ai_limit' : status === 401 ? 'ai_unauthorized' : status === 403 ? 'ai_forbidden' : 'ai_unavailable';
+	const message = status === 429 ? 'Достигнут лимит ChatGPT. Проверьте https://chatgpt.com/settings/usage.' : status === 401 ? 'ChatGPT не принял подключение. Проверьте его в настройках.' : status === 403 ? 'ChatGPT запретил запрос. Проверьте разрешения аккаунта.' : unavailable().message;
+	return new HttpError(status, code ?? fallback, message);
+}
+
+export function logProviderError(status: number, code: string, requestId: string | null): void {
+	console.error(JSON.stringify({ event: 'chatgpt_failed', status, code, requestId: requestId && /^[a-zA-Z0-9_-]{1,200}$/.test(requestId) ? requestId : null }));
+}
+
+async function renew(env: Env, row: Connection, secret: CryptoKey, lease: number): Promise<void> {
+	let response: Response | undefined;
+	try {
+		const refresh = await unseal(secret, row.refresh_token!, row.user_id, 'refresh_token');
+		response = await providerFetch(`${ISSUER}/api/accounts/oauth/token`, { method: 'POST', body: new URLSearchParams({ grant_type: 'refresh_token', client_id: row.client_id, refresh_token: refresh, resource: API }) });
+		const body = await json(response);
+		if (response.status !== 200) {
+			const error = providerError(response.status, body);
+			logProviderError(response.status, error.code, response.headers.get('x-request-id'));
+			if (['invalid_grant', 'invalid_refresh_token', 'token_expired', 'refresh_token_expired', 'refresh_token_invalidated', 'refresh_token_reused'].includes(error.code)) {
+				await env.DB.prepare(`UPDATE ai_connections SET access_token=NULL,refresh_token=NULL,id_token=NULL,scopes=NULL,expires_at=NULL,refresh_after=NULL,model=NULL,models='[]',refresh_lease_until=NULL,version=version+1,updated_at=? WHERE user_id=? AND version=? AND refresh_lease_until=?`).bind(Date.now(), row.user_id, row.version, lease).run();
+				return;
+			}
+			throw error;
+		}
+		const scope = body.scope === undefined ? row.scopes : body.scope;
+		const refreshAfter = body.earliest_refresh_at == null ? null : typeof body.earliest_refresh_at === 'number' ? body.earliest_refresh_at * 1000 : typeof body.earliest_refresh_at === 'string' ? Date.parse(body.earliest_refresh_at) : NaN;
+		if (typeof body.access_token !== 'string' || !body.access_token || typeof body.refresh_token !== 'string' || !body.refresh_token || typeof body.expires_in !== 'number' || !Number.isFinite(body.expires_in * 1000) || body.expires_in <= 0 || typeof body.token_type !== 'string' || body.token_type.toLowerCase() !== 'bearer' || typeof scope !== 'string' || !scope.split(/\s+/).includes('chatgpt.tokens.use.direct') || (refreshAfter !== null && !Number.isFinite(refreshAfter))) throw unavailable();
+		let idToken = row.id_token;
+		if (body.id_token !== undefined) {
+			if (typeof body.id_token !== 'string') throw unavailable();
+			const { payload } = await jwtVerify(body.id_token, createRemoteJWKSet(new URL(`${ISSUER}/.well-known/jwks.json`)), { issuer: row.issuer, audience: row.client_id, algorithms: ['RS256'], requiredClaims: ['sub', 'exp'] });
+			if (payload.sub !== row.subject || (payload.azp !== undefined && payload.azp !== row.client_id) || (Array.isArray(payload.aud) && payload.aud.length > 1 && payload.azp !== row.client_id)) throw unavailable();
+			idToken = await seal(secret, body.id_token, row.user_id, 'id_token');
+		}
+		const now = Date.now();
+		await env.DB.prepare(`UPDATE ai_connections SET access_token=?,refresh_token=?,id_token=?,scopes=?,expires_at=?,refresh_after=?,version=version+1,refresh_lease_until=NULL,updated_at=? WHERE user_id=? AND version=? AND refresh_lease_until=?`)
+			.bind(await seal(secret, body.access_token, row.user_id, 'access_token'), await seal(secret, body.refresh_token, row.user_id, 'refresh_token'), idToken, scope, now + body.expires_in * 1000, refreshAfter, now, row.user_id, row.version, lease).run();
+	} catch (error) {
+		if (!response || response.status === 200) logProviderError(response?.status ?? 503, 'ai_unavailable', response?.headers.get('x-request-id') ?? null);
+		throw error instanceof HttpError ? error : unavailable();
+	} finally {
+		await env.DB.prepare('UPDATE ai_connections SET refresh_lease_until=NULL WHERE user_id=? AND version=? AND refresh_lease_until=?').bind(row.user_id, row.version, lease).run();
+	}
+}
+
+async function currentToken(env: Env, userId: string, staleVersion?: number): Promise<{ access: string; version: number; model: string }> {
+	const secret = await key(env);
+	for (let attempt = 0; attempt <= 25; attempt++) {
+		const row = await readConnection(env, userId), now = Date.now();
+		if (!row?.access_token || !row.refresh_token || !row.model) throw disconnected();
+		const rejected = staleVersion === row.version;
+		if (!rejected && row.expires_at! > now && (row.expires_at! > now + 30_000 || row.refresh_after! > now)) {
+			return { access: await unseal(secret, row.access_token, userId, 'access_token'), version: row.version, model: row.model };
+		}
+		if (row.refresh_after! > now) throw unavailable();
+		if (attempt === 25) break;
+		const lease = now + 25_000;
+		const acquired = await env.DB.prepare('UPDATE ai_connections SET refresh_lease_until=? WHERE user_id=? AND version=? AND (refresh_lease_until IS NULL OR refresh_lease_until<=?) AND refresh_token IS NOT NULL').bind(lease, userId, row.version, now).run();
+		if (acquired.meta.changes) await renew(env, row, secret, lease);
+		else await scheduler.wait(200);
+	}
+	throw unavailable();
+}
+
+export function accessToken(env: Env, userId: string, staleVersion?: number): Promise<{ access: string; version: number; model: string }> {
+	const pending = currentToken(env, userId, staleVersion);
+	// Retain rotating credentials after browser disconnect: https://developers.cloudflare.com/workers/runtime-apis/context/#waituntil
+	waitUntil(pending.catch(() => {}));
+	return pending;
 }
 
 async function start(request: Request, env: Env, user: User): Promise<Response> {
@@ -119,7 +208,7 @@ async function finish(request: Request, env: Env, user: User): Promise<Response>
 		const refreshAfter = typeof body.earliest_refresh_at === 'number' ? body.earliest_refresh_at * 1000 : typeof body.earliest_refresh_at === 'string' ? Date.parse(body.earliest_refresh_at) : NaN;
 		const saved = await env.DB.prepare(`INSERT INTO ai_connections (user_id,client_id,host_id,issuer,subject,account_label,access_token,refresh_token,id_token,scopes,expires_at,refresh_after,model,models,version,updated_at)
 			SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,? WHERE EXISTS (SELECT 1 FROM oauth_attempts a JOIN sessions s ON s.token_hash=a.session_hash WHERE a.state=? AND a.expires_at>? AND s.expires_at>?)
-			ON CONFLICT(user_id) DO UPDATE SET access_token=excluded.access_token,refresh_token=excluded.refresh_token,id_token=excluded.id_token,scopes=excluded.scopes,expires_at=excluded.expires_at,refresh_after=excluded.refresh_after,account_label=excluded.account_label,model=excluded.model,models=excluded.models,version=ai_connections.version+1,updated_at=excluded.updated_at
+			ON CONFLICT(user_id) DO UPDATE SET access_token=excluded.access_token,refresh_token=excluded.refresh_token,id_token=excluded.id_token,scopes=excluded.scopes,expires_at=excluded.expires_at,refresh_after=excluded.refresh_after,account_label=excluded.account_label,model=excluded.model,models=excluded.models,refresh_lease_until=NULL,version=ai_connections.version+1,updated_at=excluded.updated_at
 			WHERE ai_connections.version=? AND ai_connections.client_id=excluded.client_id AND ai_connections.subject=excluded.subject`)
 			.bind(user.id, clientId, row?.host_id ?? env.CHATGPT_HOST_ID, ISSUER, identity.sub!, typeof identity.email === 'string' && identity.email ? identity.email : identity.sub!,
 				await seal(secret, body.access_token, user.id, 'access_token'), await seal(secret, body.refresh_token, user.id, 'refresh_token'), await seal(secret, body.id_token, user.id, 'id_token'),
@@ -133,7 +222,7 @@ async function disconnect(env: Env, user: User): Promise<Response> {
 	const [selected] = await env.DB.batch<Connection>([
 		env.DB.prepare('SELECT * FROM ai_connections WHERE user_id=?').bind(user.id),
 		env.DB.prepare('DELETE FROM oauth_attempts WHERE user_id=?').bind(user.id),
-		env.DB.prepare(`UPDATE ai_connections SET access_token=NULL,refresh_token=NULL,id_token=NULL,scopes=NULL,expires_at=NULL,refresh_after=NULL,model=NULL,models='[]',version=version+1,updated_at=? WHERE user_id=?`).bind(Date.now(), user.id),
+		env.DB.prepare(`UPDATE ai_connections SET access_token=NULL,refresh_token=NULL,id_token=NULL,scopes=NULL,expires_at=NULL,refresh_after=NULL,model=NULL,models='[]',refresh_lease_until=NULL,version=version+1,updated_at=? WHERE user_id=?`).bind(Date.now(), user.id),
 	]);
 	const row = selected.results[0];
 	let revocationConfirmed = !row?.refresh_token;

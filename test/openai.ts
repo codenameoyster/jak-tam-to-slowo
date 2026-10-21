@@ -10,6 +10,8 @@ export async function createOpenAI() {
 	const provider = {
 		claims: {} as JWTPayload,
 		badSignature: false, scope: SCOPE, tokenStatus: 200, modelsStatus: 200, emptyModels: false, revokeStatus: 200,
+		refreshStatus: 200, refreshBody: {} as Record<string, unknown>, refreshTokens: [] as string[],
+		responses: null as ((request: Request) => Response | Promise<Response>) | null,
 		calls: [] as Request[],
 		fetch: async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
 			const request = new Request(input, init);
@@ -19,12 +21,17 @@ export async function createOpenAI() {
 			if (url === 'https://auth.openai.com/.well-known/jwks.json') return Response.json({ keys: [jwk] });
 			if (url === 'https://auth.openai.com/api/accounts/oauth/token') {
 				const form = await request.formData();
+				const refreshing = form.get('grant_type') === 'refresh_token';
+				if (refreshing) {
+					provider.refreshTokens.push(String(form.get('refresh_token')));
+					if (provider.refreshStatus !== 200) return Response.json(provider.refreshBody, { status: provider.refreshStatus });
+				}
 				if (provider.tokenStatus !== 200 || form.get('code') === 'denied') return Response.json({ error: 'invalid_grant' }, { status: provider.tokenStatus === 200 ? 400 : provider.tokenStatus });
-				const [account, nonce] = String(form.get('code') ?? '').split(':');
+				const [account, nonce] = refreshing ? [String(form.get('client_id')).replace('oaiapp_', '')] : String(form.get('code') ?? '').split(':');
 				const now = Math.floor(Date.now() / 1000);
 				const idToken = await new SignJWT({ iss: 'https://auth.openai.com', sub: `subject-${account}`, aud: String(form.get('client_id') ?? ''), exp: now + 3600, iat: now, nonce, email: `${account}@example.test`, ...provider.claims })
 					.setProtectedHeader({ alg: 'RS256', kid: 'test-key' }).sign(provider.badSignature ? other.privateKey : keys.privateKey);
-				return Response.json({ access_token: `access-${account}`, refresh_token: `refresh-${account}`, id_token: idToken, token_type: 'Bearer', expires_in: 3600, scope: provider.scope, earliest_refresh_at: now + 300 });
+				return Response.json({ access_token: `access-${account}${refreshing ? '-renewed' : ''}`, refresh_token: `refresh-${account}${refreshing ? '-renewed' : ''}`, id_token: idToken, token_type: 'Bearer', expires_in: 3600, scope: provider.scope, earliest_refresh_at: now + 300, ...(refreshing ? provider.refreshBody : {}) });
 			}
 			if (url === 'https://api.openai.com/v1/models') {
 				if (provider.modelsStatus !== 200) return Response.json({ error: 'unavailable' }, { status: provider.modelsStatus });
@@ -36,6 +43,7 @@ export async function createOpenAI() {
 				] });
 			}
 			if (url === 'https://auth.openai.com/api/accounts/oauth/revoke') return new Response(null, { status: provider.revokeStatus });
+			if (url === 'https://api.openai.com/v1/responses' && provider.responses) return provider.responses(request);
 			throw new Error('Unexpected provider request.');
 		},
 	};
