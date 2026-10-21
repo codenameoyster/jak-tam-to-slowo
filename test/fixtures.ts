@@ -34,3 +34,14 @@ export const CARD_B = {
 	examplePl: 'To nasz dom.', exampleRu: 'Это наш дом.',
 	alternativesPl: [], alternativesRu: ['Жилище'],
 };
+
+export const WORD_DRAFT = {
+	pl: 'Słowo', ru: 'Слово', meaningRu: 'Единица речи',
+	examplePl: 'Nie znam tego słowa.', exampleRu: 'Я не знаю этого слова.',
+	alternativesPl: ['Wyraz'], alternativesRu: [],
+};
+export const ONION_DRAFT = {
+	pl: 'Cebula', ru: 'Лук', meaningRu: 'Овощ',
+	examplePl: 'Kroję cebulę.', exampleRu: 'Я режу лук.',
+	alternativesPl: [], alternativesRu: [],
+};

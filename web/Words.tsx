@@ -3,7 +3,7 @@ import type { Card, CardContent, CardPage } from '../shared/types';
 import { api, ApiError } from './api';
 import { CardFields } from './CardFields';
 
-export function Words() {
+export function Words({ initialCard = null }: { initialCard?: Card | null }) {
 	const [page, setPage] = useState<CardPage>({ cards: [], nextCursor: null });
 	const [query, setQuery] = useState('');
 	const [search, setSearch] = useState('');
@@ -23,7 +23,7 @@ export function Words() {
 		} catch (error) { setError(error instanceof ApiError ? error.message : 'Нет связи с сервером. Повторите поиск.'); }
 		finally { setBusy(false); }
 	}
-	useEffect(() => { void load(''); }, []);
+	useEffect(() => { void load(''); if (initialCard) select(initialCard); }, [initialCard]);
 
 	function select(card: Card) {
 		const { pl, ru, meaningRu, examplePl, exampleRu, alternativesPl, alternativesRu } = card;

@@ -48,6 +48,11 @@ form .error { margin: 0 0 16px; }
 .words-list .hint { margin: 8px 0 0; }
 .word { width: 100%; text-align: left; font-weight: 700; overflow-wrap: anywhere; }
 .edit-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.meaning-choices { display: grid; gap: 10px; margin-top: 24px; }
+.meaning-choices legend { font-weight: 700; margin-bottom: 12px; }
+.meaning-choices button { text-align: left; overflow-wrap: anywhere; }
+a.word { display: block; color: var(--accent); min-height: 48px; padding: 10px 0; }
+.discard { margin-top: 20px; }
 @media (min-width: 600px) {
 	.app { padding-top: 64px; }
 	.card { padding: 36px 32px; }

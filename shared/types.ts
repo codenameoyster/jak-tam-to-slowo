@@ -1,4 +1,5 @@
 export type Direction = 'ru-pl' | 'pl-ru';
+export type Language = 'ru' | 'pl';
 
 export interface User {
 	id: string;
@@ -27,6 +28,8 @@ export interface Card extends CardContent {
 }
 
 export interface CardPage { cards: Card[]; nextCursor: string | null }
+
+export type DraftResult = { kind: 'choices'; choices: string[] } | { kind: 'draft'; card: CardContent };
 
 export interface ConnectionView {
 	connected: boolean;

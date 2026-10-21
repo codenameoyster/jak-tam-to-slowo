@@ -1,16 +1,18 @@
 import { useEffect, useState } from 'react';
-import type { Direction, User } from '../shared/types';
+import type { Card, Direction, User } from '../shared/types';
 import { api, ApiError } from './api';
 import { Login } from './Login';
 import { Words } from './Words';
 import { Settings } from './Settings';
+import { AddWord } from './AddWord';
 
 export function App() {
 	const [user, setUser] = useState<User | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState('');
-	const [screen, setScreen] = useState<'study' | 'words' | 'settings'>('study');
+	const [screen, setScreen] = useState<'study' | 'words' | 'settings' | 'add'>('study');
+	const [selectedCard, setSelectedCard] = useState<Card | null>(null);
 
 	async function load() {
 		setLoading(true);
@@ -40,6 +42,7 @@ export function App() {
 			await api<void>('/session', { method: 'DELETE' });
 			setUser(null);
 			setScreen('study');
+			setSelectedCard(null);
 		} catch { setError('Не удалось выйти. Проверьте подключение и повторите.'); }
 		finally { setBusy(false); }
 	}
@@ -49,11 +52,12 @@ export function App() {
 		{loading ? <p role="status">Загрузка…</p> : user ? <>
 			<div className="account"><span>{user.displayName}</span><button className="quiet" onClick={logout} disabled={busy}>Выйти</button></div>
 			<nav className="tabs" aria-label="Разделы">
-				<button aria-pressed={screen === 'study'} onClick={() => setScreen('study')}>Учить</button>
-				<button aria-pressed={screen === 'words'} onClick={() => setScreen('words')}>Слова</button>
-				<button aria-pressed={screen === 'settings'} onClick={() => setScreen('settings')}>Настройки</button>
+				<button aria-pressed={screen === 'study'} disabled={busy} onClick={() => setScreen('study')}>Учить</button>
+				<button aria-pressed={screen === 'words'} disabled={busy} onClick={() => { setSelectedCard(null); setScreen('words'); }}>Слова</button>
+				<button aria-pressed={screen === 'add'} disabled={busy} onClick={() => setScreen('add')}>Добавить</button>
+				<button aria-pressed={screen === 'settings'} disabled={busy} onClick={() => setScreen('settings')}>Настройки</button>
 			</nav>
-			{screen === 'settings' ? <Settings key={user.id} /> : screen === 'words' ? <Words key={user.id} /> : <section className="card" aria-labelledby="direction-title">
+			{screen === 'settings' ? <Settings key={user.id} /> : screen === 'add' ? <AddWord key={user.id} userId={user.id} busy={busy} onBusy={setBusy} onOpen={card => { setSelectedCard(card); setScreen('words'); }} /> : screen === 'words' ? <Words key={user.id} initialCard={selectedCard} /> : <section className="card" aria-labelledby="direction-title">
 				<h1 id="direction-title">Направление перевода</h1>
 				<p className="intro">Выберите, какие слова хотите вспомнить.</p>
 				<div className="directions" role="group" aria-label="Направление перевода">

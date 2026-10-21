@@ -3,6 +3,13 @@ import { exportJWK, generateKeyPair, SignJWT, type JWTPayload } from 'jose';
 export const CALLBACK = 'http://127.0.0.1:47319/auth/callback';
 export const SCOPE = 'openid profile email offline_access resource.invoke chatgpt.tokens.use.direct';
 
+export function responseStream(value: unknown): Response {
+	const event = { type: 'response.completed', response: { id: 'resp_test', status: 'completed', error: null, incomplete_details: null,
+		output: [{ type: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: JSON.stringify(value), annotations: [] }] }],
+	} };
+	return new Response(`event: response.completed\ndata: ${JSON.stringify(event)}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
+}
+
 export async function createOpenAI() {
 	const keys = await generateKeyPair('RS256');
 	const other = await generateKeyPair('RS256');
