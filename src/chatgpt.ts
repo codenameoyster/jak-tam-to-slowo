@@ -130,11 +130,12 @@ async function finish(request: Request, env: Env, user: User): Promise<Response>
 }
 
 async function disconnect(env: Env, user: User): Promise<Response> {
-	const row = await readConnection(env, user.id);
-	await env.DB.batch([
+	const [selected] = await env.DB.batch<Connection>([
+		env.DB.prepare('SELECT * FROM ai_connections WHERE user_id=?').bind(user.id),
 		env.DB.prepare('DELETE FROM oauth_attempts WHERE user_id=?').bind(user.id),
 		env.DB.prepare(`UPDATE ai_connections SET access_token=NULL,refresh_token=NULL,id_token=NULL,scopes=NULL,expires_at=NULL,refresh_after=NULL,model=NULL,models='[]',version=version+1,updated_at=? WHERE user_id=?`).bind(Date.now(), user.id),
 	]);
+	const row = selected.results[0];
 	let revocationConfirmed = !row?.refresh_token;
 	if (row?.refresh_token) {
 		try {

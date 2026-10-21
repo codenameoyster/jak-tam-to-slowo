@@ -192,6 +192,44 @@ it.each([
 	expect((await start(a)).searchParams.get('client_id')).toBe('oaiapp_a');
 });
 
+it.each([
+	{ name: 'confirmed replacement revocation', status: 200, confirmed: true, tokens: ['refresh-a-replacement'] },
+	{ name: 'unconfirmed replacement revocation', status: 503, confirmed: false, tokens: ['refresh-a-replacement', 'refresh-a-replacement'] },
+])('revokes the credentials cleared by disconnect after $name', async ({ status, confirmed, tokens }) => {
+	const a = await login(USER_A.id), b = await login(USER_B.id);
+	await connect(a); await connect(b, 'b');
+	const other = await record(USER_B.id), replacement = address(await start(a));
+	vi.mocked(fetch).mockImplementation(async (input, init) => {
+		const response = await provider.fetch(input, init);
+		if (String(input) === 'https://auth.openai.com/api/accounts/oauth/token') {
+			return Response.json({ ...await response.json<Record<string, unknown>>(), refresh_token: 'refresh-a-replacement' });
+		}
+		if (String(input) === 'https://auth.openai.com/api/accounts/oauth/revoke') {
+			const form = await new Request(input, init).formData();
+			return new Response(null, { status: form.get('token') === 'refresh-a-replacement' ? status : 200 });
+		}
+		return response;
+	});
+	const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+	const batch = env.DB.batch.bind(env.DB);
+	vi.spyOn(env.DB, 'batch').mockImplementationOnce(async statements => {
+		entered.resolve();
+		await release.promise;
+		return batch(statements);
+	});
+	const pending = request('/api/ai/connection', { method: 'DELETE', cookie: a });
+	await entered.promise;
+	try { expect((await finish(a, replacement)).status).toBe(200); }
+	finally { release.resolve(); }
+	const response = await pending;
+	expect(response.status).toBe(200);
+	expect(await response.json()).toEqual({ connected: false, accountLabel: 'a@example.test', model: null, models: [], revocationConfirmed: confirmed });
+	expect(await record()).toMatchObject({ access_token: null, refresh_token: null, id_token: null });
+	expect(await record(USER_B.id)).toEqual(other);
+	const revocations = await Promise.all(provider.calls.filter(call => call.url.endsWith('/oauth/revoke')).map(async call => (await call.formData()).get('token')));
+	expect(revocations).toEqual(tokens);
+});
+
 it('requires an application session and same-origin mutations', async () => {
 	expect((await request('/api/ai/connection')).status).toBe(401);
 	const cookie = await login(USER_A.id);
