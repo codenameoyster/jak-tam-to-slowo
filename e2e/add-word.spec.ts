@@ -2,11 +2,11 @@ import { expect, test, type Page } from '@playwright/test';
 import type { CardPage } from '../shared/types';
 import { USER_A, USER_B, WORD_DRAFT } from '../test/fixtures';
 
-test.use({ extraHTTPHeaders: { 'CF-Connecting-IP': '192.0.2.5' } });
 let createdIds: string[];
 test.beforeEach(async ({ page, baseURL }) => {
 	createdIds = [];
-	const headers = { Origin: baseURL! };
+	const headers = { Origin: baseURL!, 'CF-Connecting-IP': `add-${crypto.randomUUID()}` };
+	await page.setExtraHTTPHeaders(headers);
 	expect((await page.request.post('/api/session', { headers, data: { username: USER_A.username, password: USER_A.password } })).status()).toBe(200);
 	const start = await page.request.post('/api/ai/connection/start', { headers });
 	const url = new URL((await start.json()).url);
@@ -103,7 +103,7 @@ test('keeps an uncertain Save retry-only across reload and opens confirmed edits
 	expect(updated.cards.find(card => card.id === savedId)).toMatchObject({ examplePl: 'Znam to słowo.', version: 2 });
 });
 
-test('recovers the selected meaning per account and keeps input language separate from study direction', async ({ page }) => {
+test('recovers the selected meaning until logout and keeps input language separate from study direction', async ({ page }) => {
 	await page.getByRole('button', { name: 'PL -> RU', exact: true }).click();
 	await page.getByRole('button', { name: 'Слова', exact: true }).click();
 	await page.getByRole('button', { name: 'Добавить', exact: true }).click();
@@ -138,17 +138,29 @@ test('recovers the selected meaning per account and keeps input language separat
 	await page.getByRole('button', { name: 'Выйти', exact: true }).click();
 	await loginForm(page, USER_A);
 	await page.getByRole('button', { name: 'Добавить', exact: true }).click();
-	await expect(page.getByLabel('Слово или выражение')).toHaveValue('лук');
-	await expect(page.getByLabel('Язык ввода')).toHaveValue('ru');
-	await expect(page.getByLabel('По-польски', { exact: true })).toHaveValue('Cebula');
-	await page.getByRole('button', { name: 'Удалить черновик', exact: true }).click();
 	await expect(page.getByLabel('Слово или выражение')).toHaveValue('');
+	await expect(page.getByLabel('По-польски', { exact: true })).toHaveCount(0);
 	await page.reload();
 	await page.getByRole('button', { name: 'Добавить', exact: true }).click();
 	await expect(page.getByLabel('По-польски', { exact: true })).toHaveCount(0);
 	const keys = await page.evaluate(() => Object.keys(sessionStorage));
 	expect(keys.some(key => key.includes(USER_A.id))).toBe(false);
-	expect(keys.some(key => key.includes(USER_B.id))).toBe(true);
+	expect(keys.some(key => key.includes(USER_B.id))).toBe(false);
+});
+
+test('retains an Add draft after session expiry only for the original account', async ({ page, baseURL }) => {
+	await page.getByRole('button', { name: 'Добавить', exact: true }).click();
+	await page.getByLabel('Слово или выражение').fill('личный черновик');
+	expect((await page.request.delete('/api/session', { headers: { Origin: baseURL! } })).status()).toBe(204);
+	await page.getByRole('button', { name: 'Подготовить карточку', exact: true }).click();
+	await expect(page.getByRole('button', { name: 'Войти', exact: true })).toBeVisible();
+	await loginForm(page, USER_B);
+	await page.getByRole('button', { name: 'Добавить', exact: true }).click();
+	await expect(page.getByLabel('Слово или выражение')).toHaveValue('');
+	await page.getByRole('button', { name: 'Выйти', exact: true }).click();
+	await loginForm(page, USER_A);
+	await page.getByRole('button', { name: 'Добавить', exact: true }).click();
+	await expect(page.getByLabel('Слово или выражение')).toHaveValue('личный черновик');
 });
 
 test('retains input on provider authentication failure and retains edits on a rejected Save', async ({ page }) => {

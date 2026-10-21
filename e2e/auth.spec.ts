@@ -15,6 +15,9 @@ test('keeps the account and direction after reload and revokes access at logout'
 	await expect(page.getByText(USER_A.displayName, { exact: true })).toBeVisible();
 	await page.getByRole('button', { name: 'PL -> RU', exact: true }).click();
 	await expect(page.getByRole('button', { name: 'PL -> RU', exact: true })).toHaveAttribute('aria-pressed', 'true');
+	await page.getByRole('button', { name: 'Добавить', exact: true }).click();
+	await page.getByRole('button', { name: 'Учить', exact: true }).click();
+	await expect(page.getByRole('button', { name: 'PL -> RU', exact: true })).toHaveAttribute('aria-pressed', 'true');
 	await page.reload();
 	await expect(page.getByText(USER_A.displayName, { exact: true })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'PL -> RU', exact: true })).toHaveAttribute('aria-pressed', 'true');

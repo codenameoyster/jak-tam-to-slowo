@@ -8,6 +8,10 @@ export default defineConfig({
 	expect: { timeout: 5_000 },
 	outputDir: '.wrangler/playwright/results',
 	reporter: [['list'], ['html', { outputFolder: '.wrangler/playwright/report', open: 'never' }]],
+	projects: [
+		{ name: 'mobile', use: { viewport: { width: 390, height: 844 } } },
+		{ name: 'desktop', testMatch: /(?:study|auth|add-word)\.spec\.ts/, use: { viewport: { width: 1280, height: 900 } } },
+	],
 	use: {
 		baseURL: 'http://127.0.0.1:8790',
 		browserName: 'chromium',

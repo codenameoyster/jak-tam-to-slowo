@@ -13,7 +13,7 @@ interface Draft {
 	submission?: string;
 }
 
-export function AddWord({ userId, onOpen, busy, onBusy: setBusy }: { userId: string; onOpen(card: Card): void; busy: boolean; onBusy(busy: boolean): void }) {
+export function AddWord({ userId, onOpen, busy, onBusy: setBusy, onExpired }: { userId: string; onOpen(card: Card): void; busy: boolean; onBusy(busy: boolean): void; onExpired(): void }) {
 	const key = `card-draft:${userId}`;
 	const [draft, setDraft] = useState<Draft | null>(() => {
 		try { return JSON.parse(sessionStorage.getItem(key) ?? 'null'); } catch { return null; }
@@ -62,7 +62,10 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy }: { userId: str
 		try {
 			const result = await api<DraftResult>('/cards/draft', { method: 'POST', body: JSON.stringify({ text: draft.text, language: draft.language, meaningRu }) });
 			change(result.kind === 'draft' ? { card: result.card, choices: [] } : { choices: result.choices, card: undefined });
-		} catch (error) { setError(error instanceof ApiError ? error.message : 'Нет связи с сервером. Черновик остался в форме. Попробуйте снова.'); }
+		} catch (error) {
+			if (error instanceof ApiError && error.code === 'unauthorized') onExpired();
+			else setError(error instanceof ApiError ? error.message : 'Нет связи с сервером. Черновик остался в форме. Попробуйте снова.');
+		}
 		finally { setBusy(false); }
 	}
 
@@ -85,6 +88,7 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy }: { userId: str
 			setDraft(null);
 			setSaved(card);
 		} catch (error) {
+			if (error instanceof ApiError && error.code === 'unauthorized') { onExpired(); return; }
 			if (error instanceof ApiError && (error.status === 400 || error.status === 413)) setDraft({ ...pending, submission: undefined });
 			setError(error instanceof ApiError ? error.message : 'Нет связи с сервером. Сохранение не подтверждено. Попробуйте сохранить ещё раз.');
 		}

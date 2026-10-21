@@ -36,8 +36,6 @@ form .error { margin: 0 0 16px; }
 .directions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .directions button { padding-inline: 8px; font-weight: 700; }
 .directions button[aria-pressed='true'] { color: #fff; background: var(--accent); border-color: var(--accent); }
-.translation { font-weight: 700; margin: 24px 0 8px; }
-.saved { color: var(--muted); font-size: .9375rem; margin-bottom: 0; }
 .notice { padding: 0 4px; }
 .tabs { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
 .tabs button { flex: 1; padding-inline: 10px; }
@@ -53,6 +51,19 @@ form .error { margin: 0 0 16px; }
 .meaning-choices button { text-align: left; overflow-wrap: anywhere; }
 a.word { display: block; color: var(--accent); min-height: 48px; padding: 10px 0; }
 .discard { margin-top: 20px; }
+.study .directions { margin-top: 24px; }
+.study-term { margin: 24px 0 8px; font-size: 1.75rem; line-height: 1.25; overflow-wrap: anywhere; }
+.study-example { margin: 8px 0 24px; overflow-wrap: anywhere; }
+.study-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.study-actions button { flex: 1 1 9rem; margin-top: 0; }
+.study-feedback { border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-top: 24px; overflow-wrap: anywhere; }
+.study-feedback h2 { margin: 0; font-size: 1.25rem; }
+.study-feedback p:last-child { margin-bottom: 0; }
+.study-feedback.correct { background: #edf6ee; }
+.study-feedback.almost { background: #fff4db; }
+.study-feedback.again { background: #fff0f3; }
+.study-correction { font-size: 1.5rem; font-weight: 700; }
+.study-recovery { margin-top: 24px; }
 @media (min-width: 600px) {
 	.app { padding-top: 64px; }
 	.card { padding: 36px 32px; }

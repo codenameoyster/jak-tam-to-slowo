@@ -9,7 +9,8 @@ globalThis.fetch = async (input, init) => {
 	upstream.responses = async request => {
 		const body = await request.json<{ input: { content: string }[] }>();
 		const input = JSON.parse(body.input[0].content);
-		if (input.text === 'ошибка подключения') return new Response('event: error\ndata: {"type":"error","code":"subscription_sharing_invalid_user"}\n\n', { headers: { 'Content-Type': 'text/event-stream' } });
+		if (input.text === 'ошибка подключения' || input.answer === 'ошибка подключения') return new Response('event: error\ndata: {"type":"error","code":"subscription_sharing_invalid_user"}\n\n', { headers: { 'Content-Type': 'text/event-stream' } });
+		if ('answer' in input) return responseStream({ grade: input.answer === 'domu' ? 'almost' : 'again', correction: input.card[input.direction === 'ru-pl' ? 'pl' : 'ru'], explanationRu: 'Используйте словарную форму.' });
 		if (input.text === 'лук' && !input.meaningRu) return responseStream({ kind: 'choices', choices: ['Овощ', 'Оружие для стрельбы стрелами'] });
 		return responseStream({ kind: 'draft', card: input.text === 'лук' ? ONION_DRAFT : WORD_DRAFT });
 	};

@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { Card, Direction, User } from '../shared/types';
 import { api, ApiError } from './api';
 import { Login } from './Login';
 import { Words } from './Words';
 import { Settings } from './Settings';
 import { AddWord } from './AddWord';
+import { Study } from './Study';
 
 export function App() {
 	const [user, setUser] = useState<User | null>(null);
@@ -13,33 +14,37 @@ export function App() {
 	const [error, setError] = useState('');
 	const [screen, setScreen] = useState<'study' | 'words' | 'settings' | 'add'>('study');
 	const [selectedCard, setSelectedCard] = useState<Card | null>(null);
+	const expired = useCallback(() => {
+		setUser(null);
+		setBusy(false);
+		setError('');
+		setScreen('study');
+		setSelectedCard(null);
+	}, []);
+	const directionSaved = useCallback((direction: Direction) => {
+		setUser(current => current && current.direction !== direction ? { ...current, direction } : current);
+	}, []);
 
 	async function load() {
 		setLoading(true);
 		setError('');
 		try { setUser(await api<User>('/session')); }
 		catch (error) {
-			if (error instanceof ApiError && error.status === 401) setUser(null);
+			if (error instanceof ApiError && error.code === 'unauthorized') setUser(null);
 			else setError('Не удалось загрузить аккаунт. Проверьте подключение и повторите.');
 		} finally { setLoading(false); }
 	}
 	useEffect(() => { void load(); }, []);
-
-	async function saveDirection(direction: Direction) {
-		setBusy(true);
-		setError('');
-		try { setUser(await api<User>('/me', { method: 'PATCH', body: JSON.stringify({ direction }) })); }
-		catch (error) {
-			if (error instanceof ApiError && error.status === 401) setUser(null);
-			else setError('Не удалось сохранить направление. Попробуйте снова.');
-		} finally { setBusy(false); }
-	}
 
 	async function logout() {
 		setBusy(true);
 		setError('');
 		try {
 			await api<void>('/session', { method: 'DELETE' });
+			if (user) {
+				sessionStorage.removeItem(`card-draft:${user.id}`);
+				sessionStorage.removeItem(`study-draft:${user.id}`);
+			}
 			setUser(null);
 			setScreen('study');
 			setSelectedCard(null);
@@ -57,16 +62,7 @@ export function App() {
 				<button aria-pressed={screen === 'add'} disabled={busy} onClick={() => setScreen('add')}>Добавить</button>
 				<button aria-pressed={screen === 'settings'} disabled={busy} onClick={() => setScreen('settings')}>Настройки</button>
 			</nav>
-			{screen === 'settings' ? <Settings key={user.id} /> : screen === 'add' ? <AddWord key={user.id} userId={user.id} busy={busy} onBusy={setBusy} onOpen={card => { setSelectedCard(card); setScreen('words'); }} /> : screen === 'words' ? <Words key={user.id} initialCard={selectedCard} /> : <section className="card" aria-labelledby="direction-title">
-				<h1 id="direction-title">Направление перевода</h1>
-				<p className="intro">Выберите, какие слова хотите вспомнить.</p>
-				<div className="directions" role="group" aria-label="Направление перевода">
-					<button aria-label="RU -> PL" aria-pressed={user.direction === 'ru-pl'} disabled={busy} onClick={() => saveDirection('ru-pl')}>{'RU -> PL'}</button>
-					<button aria-label="PL -> RU" aria-pressed={user.direction === 'pl-ru'} disabled={busy} onClick={() => saveDirection('pl-ru')}>{'PL -> RU'}</button>
-				</div>
-				<p className="translation">{user.direction === 'ru-pl' ? 'С русского на польский' : 'С польского на русский'}</p>
-				<p className="saved" role="status">{busy ? 'Сохранение…' : 'Направление сохранено в вашем аккаунте.'}</p>
-			</section>}
+			{screen === 'settings' ? <Settings key={user.id} /> : screen === 'add' ? <AddWord key={user.id} userId={user.id} busy={busy} onBusy={setBusy} onExpired={expired} onOpen={card => { setSelectedCard(card); setScreen('words'); }} /> : screen === 'words' ? <Words key={user.id} initialCard={selectedCard} /> : <Study key={user.id} user={user} onDirection={directionSaved} onBusy={setBusy} onExpired={expired} />}
 		</> : !error && <Login onLogin={setUser} />}
 		{error && <div className="notice"><p className="error" role="alert">{error}</p>{!user && <button onClick={load}>Повторить</button>}</div>}
 	</main>;
