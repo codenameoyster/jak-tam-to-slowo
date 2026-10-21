@@ -159,6 +159,10 @@ export function useStudy(user: User) {
 	async function submit(action: ReviewInput['action']) {
 		const current = live.current, item = current.queue[0];
 		if (current.state === 'checking' || current.state === 'feedback' || current.savingDirection || (!current.pending && !item)) return;
+		if (!current.pending && action === 'answer' && current.answer.length > 500) {
+			update({ error: 'Сократите ответ до 500 символов и повторите проверку.' });
+			return;
+		}
 		const input: ReviewInput | null = current.pending ? null : {
 			attemptId: crypto.randomUUID(), cardId: item.card.id, cardVersion: item.card.version,
 			progressVersion: item.progress?.version ?? 0, direction: current.direction,

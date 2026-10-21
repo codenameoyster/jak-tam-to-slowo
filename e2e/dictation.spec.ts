@@ -149,6 +149,46 @@ test('stops at 30 seconds, releases all tracks, and prevents overlapping transcr
 	await expect(page.getByLabel('Ответ по-польски')).toHaveValue('typed during transcription słowo');
 });
 
+test('keeps an overlong dictated Study answer editable across reload until it is corrected', async ({ page }) => {
+	await media(page);
+	await page.route('**/api/dictation', async route => {
+		const response = await route.fetch();
+		expect(response.status()).toBe(200);
+		await route.fulfill({ response, json: { text: 'дом' } });
+	});
+	const reviews: ReviewInput[] = [];
+	page.on('request', request => { if (request.url().endsWith('/api/reviews')) reviews.push(request.postDataJSON()); });
+	await page.goto('/');
+	await page.getByLabel('PL -> RU', { exact: true }).click();
+	const input = page.getByLabel('Ответ по-русски');
+	const typed = 'слово '.repeat(83), combined = `${typed} дом`;
+	await input.fill(typed);
+	await start(page);
+	await page.getByRole('button', { name: 'Завершить запись', exact: true }).click();
+	await expect(input).toHaveValue(combined);
+	await page.getByRole('button', { name: 'Проверить', exact: true }).click();
+	await expect(page.getByRole('alert')).toBeVisible();
+	expect(reviews).toEqual([]);
+	await expect(page.getByRole('alert')).toContainText('Сократите ответ до 500 символов');
+	await expect(input).toBeEnabled();
+	await expect(input).toHaveValue(combined);
+	expect(await page.evaluate(id => JSON.parse(sessionStorage.getItem(`study-draft:${id}`)!), USER_A.id)).toMatchObject({ answer: combined, pending: null });
+	await page.reload();
+	await expect(input).toHaveValue(combined);
+	await expect(input).toBeEnabled();
+	await page.getByRole('button', { name: 'Проверить', exact: true }).click();
+	await expect(page.getByRole('alert')).toContainText('Сократите ответ до 500 символов');
+	expect(reviews).toEqual([]);
+	await input.fill('Слово');
+	const saved = page.waitForResponse(response => response.url().endsWith('/api/reviews'));
+	await page.getByRole('button', { name: 'Проверить', exact: true }).click();
+	expect((await saved).status()).toBe(200);
+	expect(reviews).toHaveLength(1);
+	expect(reviews[0]).toMatchObject({ action: 'answer', answer: 'Слово' });
+	await expect(page.getByTestId('study-correction')).toHaveText('Слово');
+	await expect(page.getByRole('status').filter({ hasText: 'Верно' })).toBeVisible();
+});
+
 for (const scenario of [
 	{ name: 'cancel', change: 'cancel' },
 	{ name: 'tab unmount', change: 'tab' },
