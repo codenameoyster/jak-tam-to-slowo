@@ -32,19 +32,22 @@ function cookie(request: Request, env: Env, value: string, seconds: number): str
 	return `${cookieName(request, env)}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${seconds}${localHttp(request, env) ? '' : '; Secure'}`;
 }
 
-export async function requireUser(request: Request, env: Env): Promise<User> {
+export async function requireSession(request: Request, env: Env): Promise<{ user: User; sessionHash: string }> {
 	const value = token(request, env);
 	if (value) {
+		const sessionHash = await hash(value);
 		const row = await env.DB.prepare(`SELECT u.id, u.username, u.display_name AS displayName, u.direction, s.credential_fingerprint
 			FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ?`)
-			.bind(await hash(value), Date.now()).first<User & { credential_fingerprint: string }>();
+			.bind(sessionHash, Date.now()).first<User & { credential_fingerprint: string }>();
 		const account = row && accounts(env).find(account => account.id === row.id);
 		if (row && account && row.credential_fingerprint === await fingerprint(account)) {
-			return { id: row.id, username: row.username, displayName: row.displayName, direction: row.direction };
+			return { user: { id: row.id, username: row.username, displayName: row.displayName, direction: row.direction }, sessionHash };
 		}
 	}
 	throw new HttpError(401, 'unauthorized', 'Войдите, чтобы продолжить.');
 }
+
+export async function requireUser(request: Request, env: Env): Promise<User> { return (await requireSession(request, env)).user; }
 
 export async function handleSession(request: Request, env: Env): Promise<Response> {
 	methods(request, ['GET', 'POST', 'DELETE']);

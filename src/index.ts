@@ -1,5 +1,6 @@
 import { handleMe, handleSession, requireUser } from './auth';
 import { handleCards } from './cards';
+import { handleChatgpt } from './chatgpt';
 import { HttpError, protectRequest } from './http';
 
 export interface Env extends Bindings { LOCAL_HTTP?: string }
@@ -16,9 +17,9 @@ export default {
 				const user = await requireUser(request, env);
 				if (pathname === '/api/me') response = await handleMe(request, env, user);
 				else {
-					const cards = await handleCards(request, env, user);
-					if (!cards) throw new HttpError(404, 'not_found', 'Страница не найдена.');
-					response = cards;
+					const result = await handleCards(request, env, user) ?? await handleChatgpt(request, env, user);
+					if (!result) throw new HttpError(404, 'not_found', 'Страница не найдена.');
+					response = result;
 				}
 			}
 		} catch (error) {

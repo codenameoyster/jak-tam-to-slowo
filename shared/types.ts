@@ -27,3 +27,11 @@ export interface Card extends CardContent {
 }
 
 export interface CardPage { cards: Card[]; nextCursor: string | null }
+
+export interface ConnectionView {
+	connected: boolean;
+	accountLabel: string | null;
+	model: string | null;
+	models: { slug: string; name: string }[];
+	revocationConfirmed?: boolean;
+}
