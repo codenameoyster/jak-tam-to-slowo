@@ -96,9 +96,7 @@ export async function handleCards(request: Request, env: Env, user: User): Promi
 			WHERE id = ? AND version = ? AND archived = 0 RETURNING ${columns}`).bind(Date.now(), id, version).first<CardRow>();
 	} else {
 		const content = parseCard(value);
-		const current = await readCard(env, id);
-		if (content.pl !== current.pl) content.alternativesPl = [];
-		if (content.ru !== current.ru) content.alternativesRu = [];
+		await readCard(env, id);
 		row = await env.DB.prepare(`UPDATE cards SET pl = ?, ru = ?, example_pl = ?, example_ru = ?, meaning_ru = ?,
 			alternatives_pl = ?, alternatives_ru = ?, search_pl = ?, search_ru = ?, version = version + 1, updated_at = ?
 			WHERE id = ? AND version = ? AND archived = 0 RETURNING ${columns}`)

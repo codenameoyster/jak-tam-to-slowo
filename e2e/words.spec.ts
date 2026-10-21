@@ -17,7 +17,7 @@ test('keeps an unsaved shared edit after another learner saves first', async ({ 
 		await page.getByLabel('По-русски', { exact: true }).fill('Мой вариант');
 		await expect(page.getByLabel('Другие ответы по-русски')).toHaveValue('');
 		const { id, ...content } = CARD_A;
-		expect((await other.patch(`/api/cards/${id}`, { data: { ...content, ru: 'Словечко', version: 1 } })).status()).toBe(200);
+		expect((await other.patch(`/api/cards/${id}`, { data: { ...content, ru: 'Словечко', alternativesRu: [], version: 1 } })).status()).toBe(200);
 		const saved = page.waitForResponse(response => response.url().endsWith(`/api/cards/${id}`) && response.request().method() === 'PATCH');
 		await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
 		expect((await saved).status()).toBe(409);
@@ -35,7 +35,7 @@ test('keeps an unsaved shared edit after another learner saves first', async ({ 
 	} finally { await other.dispose(); }
 });
 
-test('retries a failed save with the draft intact and archives the shared card', async ({ page, baseURL }) => {
+test('retries a term edit with replacement alternatives and archives the shared card', async ({ page, baseURL }) => {
 	const headers = { Origin: baseURL! };
 	expect((await page.request.post('/api/session', { headers, data: { username: USER_A.username, password: USER_A.password } })).status()).toBe(200);
 	expect((await page.request.post('/api/cards', { headers, data: CARD_B })).status()).toBe(201);
@@ -43,17 +43,22 @@ test('retries a failed save with the draft intact and archives the shared card',
 	await page.getByRole('button', { name: 'Слова', exact: true }).click();
 	await page.getByRole('button', { name: 'Dom / Дом', exact: true }).click();
 	await page.getByLabel('Пример по-польски').fill('To mój dom.');
+	await expect(page.getByLabel('Другие ответы по-русски')).toHaveValue('Жилище');
+	await page.getByLabel('По-русски', { exact: true }).fill('Жилище');
+	await expect(page.getByLabel('Другие ответы по-русски')).toHaveValue('');
+	await page.getByLabel('Другие ответы по-русски').fill('Дом');
 	await page.route(`**/api/cards/${CARD_B.id}`, route => route.abort());
 	await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
 	await expect(page.getByRole('alert')).toContainText('Нет связи с сервером');
 	await expect(page.getByLabel('Пример по-польски')).toHaveValue('To mój dom.');
+	await expect(page.getByLabel('Другие ответы по-русски')).toHaveValue('Дом');
 	await page.unroute(`**/api/cards/${CARD_B.id}`);
 	await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
-	await expect(page.getByRole('button', { name: 'Dom / Дом', exact: true })).toBeVisible();
-	await page.getByRole('button', { name: 'Dom / Дом', exact: true }).click();
+	await expect(page.getByRole('button', { name: 'Dom / Жилище', exact: true })).toBeVisible();
+	await page.getByRole('button', { name: 'Dom / Жилище', exact: true }).click();
 	await expect(page.getByLabel('Пример по-польски')).toHaveValue('To mój dom.');
-	await expect(page.getByLabel('Другие ответы по-русски')).toHaveValue('Жилище');
+	await expect(page.getByLabel('Другие ответы по-русски')).toHaveValue('Дом');
 	await page.getByRole('button', { name: 'В архив', exact: true }).click();
-	await expect(page.getByRole('button', { name: 'Dom / Дом', exact: true })).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'Dom / Жилище', exact: true })).toHaveCount(0);
 	expect((await (await page.request.get('/api/cards?q=Dom')).json()).cards).toEqual([]);
 });

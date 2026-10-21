@@ -17,7 +17,7 @@ it('shares cards and rejects a stale edit without losing the other learner’s t
 	const list = await request('/api/cards', { cookie: b });
 	expect(await list.json()).toMatchObject({ cards: [{ ...CARD_A, version: 1 }] });
 	vi.spyOn(Date, 'now').mockReturnValue(now + 1000);
-	const updated = await request(`/api/cards/${cardId}`, { method: 'PATCH', cookie: b, body: { ...content, ru: 'Словечко', version: 1 } });
+	const updated = await request(`/api/cards/${cardId}`, { method: 'PATCH', cookie: b, body: { ...content, ru: 'Словечко', alternativesRu: [], version: 1 } });
 	expect(updated.status).toBe(200);
 	expect(await updated.json()).toMatchObject({ version: 2, ru: 'Словечко', alternativesRu: [], alternativesPl: ['Wyraz'], createdAt: now, updatedAt: now + 1000 });
 	const response = await request(`/api/cards/${cardId}`, { method: 'PATCH', cookie: a, body: { ...content, ru: 'Мой вариант', version: 1 } });
@@ -56,7 +56,7 @@ it('recognizes a create retry after the other learner has edited the card', asyn
 	const a = await login(USER_A.id);
 	const b = await login(USER_B.id);
 	expect((await request('/api/cards', { method: 'POST', cookie: a, body: CARD_A })).status).toBe(201);
-	expect((await request(`/api/cards/${cardId}`, { method: 'PATCH', cookie: b, body: { ...content, ru: 'Словечко', version: 1 } })).status).toBe(200);
+	expect((await request(`/api/cards/${cardId}`, { method: 'PATCH', cookie: b, body: { ...content, ru: 'Словечко', alternativesRu: [], version: 1 } })).status).toBe(200);
 	const retry = await request('/api/cards', { method: 'POST', cookie: a, body: CARD_A });
 	expect(retry.status).toBe(200);
 	expect(await retry.json()).toMatchObject({ id: cardId, ru: 'Словечко', version: 2 });
@@ -81,15 +81,28 @@ it.each([
 	expect((await response.json() as { cards: { id: string }[] }).cards.map(card => card.id)).toEqual(ids);
 });
 
-it('updates Unicode search keys and clears only the changed language’s alternatives', async () => {
+it('updates Unicode search keys after a term edit', async () => {
 	const cookie = await login(USER_A.id);
 	expect((await request('/api/cards', { method: 'POST', cookie, body: CARD_A })).status).toBe(201);
-	const response = await request(`/api/cards/${cardId}`, { method: 'PATCH', cookie, body: { ...content, pl: 'Żółw', version: 1 } });
+	const response = await request(`/api/cards/${cardId}`, { method: 'PATCH', cookie, body: { ...content, pl: 'Żółw', alternativesPl: [], version: 1 } });
 	expect(response.status).toBe(200);
 	expect(await response.json()).toMatchObject({ alternativesPl: [], alternativesRu: ['Словечко'] });
 	const found = await request(`/api/cards?q=${encodeURIComponent('Z\u0307O\u0301ŁW')}`, { cookie });
 	expect(await found.json()).toMatchObject({ cards: [{ id: cardId, pl: 'Żółw' }] });
 	expect(await (await request('/api/cards?q=słowo', { cookie })).json()).toEqual({ cards: [], nextCursor: null });
+});
+
+it.each([
+	{ name: 'Polish', change: { pl: 'Wyraz', alternativesPl: ['Leksem'] }, expected: { pl: 'Wyraz', ru: 'Слово', alternativesPl: ['Leksem'], alternativesRu: ['Словечко'] } },
+	{ name: 'Russian', change: { ru: 'Словцо', alternativesRu: ['Лексема'] }, expected: { pl: 'Słowo', ru: 'Словцо', alternativesPl: ['Wyraz'], alternativesRu: ['Лексема'] } },
+])('preserves replacement alternatives when changing the $name term', async ({ change, expected }) => {
+	const a = await login(USER_A.id);
+	const b = await login(USER_B.id);
+	expect((await request('/api/cards', { method: 'POST', cookie: a, body: CARD_A })).status).toBe(201);
+	const response = await request(`/api/cards/${cardId}`, { method: 'PATCH', cookie: b, body: { ...content, ...change, version: 1 } });
+	expect(response.status).toBe(200);
+	expect(await response.json()).toMatchObject({ ...expected, version: 2 });
+	expect(await readCard(env, cardId)).toMatchObject({ ...expected, version: 2 });
 });
 
 it.each([
