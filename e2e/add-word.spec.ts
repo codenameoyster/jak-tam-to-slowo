@@ -31,7 +31,7 @@ async function loginForm(page: Page, user: typeof USER_A) {
 	await page.getByRole('button', { name: 'Войти', exact: true }).click();
 }
 
-test('opens existing words and keeps an edited preview and its ID after a lost Save response', async ({ page, baseURL }) => {
+test('keeps an uncertain Save retry-only across reload and opens confirmed edits in Words', async ({ page, baseURL }) => {
 	const seedId = crypto.randomUUID();
 	expect((await page.request.post('/api/cards', { headers: { Origin: baseURL! }, data: { id: seedId, ...WORD_DRAFT } })).status()).toBe(201);
 	createdIds.push(seedId);
@@ -52,8 +52,11 @@ test('opens existing words and keeps an edited preview and its ID after a lost S
 	await page.getByLabel('Пример по-польски').fill('To moje słowo.');
 	await page.getByLabel('Другие ответы по-польски').fill('Wyraz\n\n');
 	let savedId = '';
+	let submittedBody = '', storedBody: string | undefined;
 	await page.route('**/api/cards', async route => {
 		savedId = route.request().postDataJSON().id;
+		submittedBody = route.request().postData()!;
+		storedBody = await page.evaluate(key => JSON.parse(sessionStorage.getItem(key)!).submission, `card-draft:${USER_A.id}`);
 		createdIds.push(savedId);
 		expect((await route.fetch()).status()).toBe(201);
 		await route.abort();
@@ -62,21 +65,42 @@ test('opens existing words and keeps an edited preview and its ID after a lost S
 	await expect(page.getByRole('alert')).toContainText('Нет связи с сервером');
 	await expect(page.getByLabel('По-русски', { exact: true })).toHaveValue('Моё слово');
 	await expect(page.getByLabel('Пример по-польски')).toHaveValue('To moje słowo.');
+	await expect(page.getByLabel('По-русски', { exact: true })).toBeDisabled();
+	await expect(page.getByLabel('Пример по-польски')).toBeDisabled();
+	await expect(page.getByLabel('Другие ответы по-польски')).toBeDisabled();
+	await expect(page.getByLabel('Слово или выражение')).toBeDisabled();
+	await expect(page.getByLabel('Язык ввода')).toBeDisabled();
+	await expect(page.getByRole('button', { name: 'Подготовить карточку', exact: true })).toBeDisabled();
+	await expect(page.getByRole('button', { name: 'Удалить черновик', exact: true })).toBeDisabled();
+	expect(storedBody).toBe(submittedBody);
 	await page.unroute('**/api/cards');
 	await page.reload();
 	await page.getByRole('button', { name: 'Добавить', exact: true }).click();
 	await expect(page.getByLabel('По-русски', { exact: true })).toHaveValue('Моё слово');
 	await expect(page.getByLabel('Пример по-польски')).toHaveValue('To moje słowo.');
+	await expect(page.getByLabel('По-русски', { exact: true })).toBeDisabled();
+	await expect(page.getByLabel('Пример по-польски')).toBeDisabled();
+	await expect(page.getByRole('button', { name: 'Подготовить карточку', exact: true })).toBeDisabled();
 	const retry = page.waitForResponse(response => response.url().endsWith('/api/cards') && response.request().method() === 'POST');
 	await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
 	expect((await retry).status()).toBe(200);
 	expect((await retry).request().postDataJSON().id).toBe(savedId);
+	expect((await retry).request().postData()).toBe(submittedBody);
 	await expect(page.getByRole('status')).toContainText('Карточка сохранена.');
 	await expect(page.getByLabel('Слово или выражение')).toHaveValue('');
 	const cards = (await (await page.request.get('/api/cards')).json()).cards;
 	expect(cards).toHaveLength(before + 1);
 	expect(cards.find((card: { id: string }) => card.id === savedId)).toMatchObject({ ru: 'Моё слово', examplePl: 'To moje słowo.', alternativesPl: ['Wyraz'], version: 1, createdBy: USER_A.id });
 	expect(await page.evaluate(() => Object.keys(sessionStorage))).toEqual([]);
+	await page.getByRole('link', { name: 'Открыть в «Словах»', exact: true }).click();
+	await expect(page.getByRole('heading', { name: 'Слова', exact: true })).toBeVisible();
+	await page.getByLabel('Пример по-польски').fill('Znam to słowo.');
+	const edit = page.waitForResponse(response => response.url().endsWith(`/api/cards/${savedId}`) && response.request().method() === 'PATCH');
+	await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
+	expect((await edit).status()).toBe(200);
+	const updated: CardPage = await (await page.request.get('/api/cards')).json();
+	expect(updated.cards).toHaveLength(before + 1);
+	expect(updated.cards.find(card => card.id === savedId)).toMatchObject({ examplePl: 'Znam to słowo.', version: 2 });
 });
 
 test('recovers the selected meaning per account and keeps input language separate from study direction', async ({ page }) => {
@@ -148,6 +172,39 @@ test('retains input on provider authentication failure and retains edits on a re
 	await expect(page.getByRole('alert')).toContainText('Проверьте текстовые поля.');
 	await expect(page.getByLabel('Значение', { exact: true })).toHaveValue(' ');
 	await expect(page.getByLabel('Пример по-русски')).toHaveValue('Я не знаю этого слова.');
+	await expect(page.getByLabel('Значение', { exact: true })).toBeEnabled();
+	await expect(page.getByRole('button', { name: 'Подготовить карточку', exact: true })).toBeEnabled();
+	await page.reload();
+	await page.getByRole('button', { name: 'Добавить', exact: true }).click();
+	await expect(page.getByLabel('Значение', { exact: true })).toHaveValue(' ');
+	await page.getByLabel('Значение', { exact: true }).fill('Единица речи');
+	const corrected = page.waitForResponse(response => response.url().endsWith('/api/cards') && response.request().method() === 'POST');
+	await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
+	const result = await corrected;
+	createdIds.push(result.request().postDataJSON().id);
+	expect(result.status()).toBe(201);
+	expect(result.request().postDataJSON().id).toBe((await save).request().postDataJSON().id);
+	await expect(page.getByRole('status')).toContainText('Карточка сохранена.');
+	const cards: CardPage = await (await page.request.get('/api/cards')).json();
+	expect(cards.cards).toHaveLength(1);
+	expect(cards.cards[0]).toMatchObject({ meaningRu: 'Единица речи', exampleRu: 'Я не знаю этого слова.', version: 1 });
+});
+
+test('keeps the preview editable and sends no create when recovery storage fails', async ({ page }) => {
+	await page.getByRole('button', { name: 'Добавить', exact: true }).click();
+	await page.getByLabel('Слово или выражение').fill('słowo');
+	await page.getByRole('button', { name: 'Подготовить карточку', exact: true }).click();
+	await expect(page.getByLabel('По-польски', { exact: true })).toHaveValue('Słowo');
+	page.on('request', request => {
+		if (request.url().endsWith('/api/cards') && request.method() === 'POST') createdIds.push(request.postDataJSON().id);
+	});
+	await page.evaluate(() => { Storage.prototype.setItem = () => { throw new DOMException('Storage is full.', 'QuotaExceededError'); }; });
+	await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
+	await expect(page.getByRole('alert')).toContainText('Браузер не сохранил черновик');
+	await expect(page.getByLabel('По-польски', { exact: true })).toBeEnabled();
+	await expect(page.getByRole('button', { name: 'Подготовить карточку', exact: true })).toBeEnabled();
+	expect(createdIds).toEqual([]);
+	expect((await (await page.request.get('/api/cards')).json()).cards).toEqual([]);
 });
 
 test('keeps the draft mounted until Save confirms and clears recovery data', async ({ page }) => {

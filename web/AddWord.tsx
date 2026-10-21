@@ -10,6 +10,7 @@ interface Draft {
 	meaningRu?: string;
 	choices: string[];
 	card?: CardContent;
+	submission?: string;
 }
 
 export function AddWord({ userId, onOpen, busy, onBusy: setBusy }: { userId: string; onOpen(card: Card): void; busy: boolean; onBusy(busy: boolean): void }) {
@@ -19,10 +20,11 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy }: { userId: str
 	});
 	const [error, setError] = useState('');
 	const [storageError, setStorageError] = useState('');
-	const [saved, setSaved] = useState(false);
+	const [saved, setSaved] = useState<Card | null>(null);
 	const [matches, setMatches] = useState<Card[]>([]);
 	const [searchError, setSearchError] = useState('');
 	const query = draft?.text.trim() ?? '';
+	const locked = busy || !!draft?.submission;
 
 	useEffect(() => {
 		try {
@@ -48,14 +50,14 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy }: { userId: str
 	function change(value: Partial<Draft>) {
 		setDraft(current => ({ ...(current ?? { id: crypto.randomUUID(), text: '', language: 'pl', choices: [] }), ...value }));
 		setError('');
-		setSaved(false);
+		setSaved(null);
 	}
 
 	async function generate(meaningRu = draft?.meaningRu) {
-		if (!draft) return;
+		if (!draft || draft.submission) return;
 		setBusy(true);
 		setError('');
-		setSaved(false);
+		setSaved(null);
 		change({ meaningRu });
 		try {
 			const result = await api<DraftResult>('/cards/draft', { method: 'POST', body: JSON.stringify({ text: draft.text, language: draft.language, meaningRu }) });
@@ -67,16 +69,25 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy }: { userId: str
 	async function save(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
 		if (!draft?.card) return;
+		const pending = { ...draft, submission: draft.submission ?? JSON.stringify({ id: draft.id, ...draft.card,
+			alternativesPl: draft.card.alternativesPl.filter(value => value.trim()),
+			alternativesRu: draft.card.alternativesRu.filter(value => value.trim()),
+		}) };
+		try {
+			sessionStorage.setItem(key, JSON.stringify(pending));
+			setStorageError('');
+		} catch { setStorageError('Браузер не сохранил черновик. Освободите место и повторите сохранение.'); return; }
+		setDraft(pending);
 		setBusy(true);
 		setError('');
 		try {
-			await api<Card>('/cards', { method: 'POST', body: JSON.stringify({ id: draft.id, ...draft.card,
-				alternativesPl: draft.card.alternativesPl.filter(value => value.trim()),
-				alternativesRu: draft.card.alternativesRu.filter(value => value.trim()),
-			}) });
+			const card = await api<Card>('/cards', { method: 'POST', body: pending.submission });
 			setDraft(null);
-			setSaved(true);
-		} catch (error) { setError(error instanceof ApiError ? error.message : 'Нет связи с сервером. Правки остались в форме. Попробуйте сохранить ещё раз.'); }
+			setSaved(card);
+		} catch (error) {
+			if (error instanceof ApiError && (error.status === 400 || error.status === 413)) setDraft({ ...pending, submission: undefined });
+			setError(error instanceof ApiError ? error.message : 'Нет связи с сервером. Сохранение не подтверждено. Попробуйте сохранить ещё раз.');
+		}
 		finally { setBusy(false); }
 	}
 
@@ -84,7 +95,7 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy }: { userId: str
 		<h1 id="add-title">Добавить слово</h1>
 		<p className="intro">Подготовьте карточку, проверьте текст и сохраните её в общей коллекции.</p>
 		<form onSubmit={event => { event.preventDefault(); void generate(); }}>
-			<fieldset disabled={busy}>
+			<fieldset disabled={locked}>
 				<label htmlFor="input-language">Язык ввода</label>
 				<select id="input-language" value={draft?.language ?? 'pl'} onChange={event => change({ language: event.target.value as Language, meaningRu: undefined, choices: [], card: undefined })}>
 					<option value="pl">Польский</option><option value="ru">Русский</option>
@@ -92,7 +103,7 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy }: { userId: str
 				<label htmlFor="draft-text">Слово или выражение</label>
 				<input id="draft-text" lang={draft?.language ?? 'pl'} value={draft?.text ?? ''} maxLength={200} required onChange={event => change({ text: event.target.value, meaningRu: undefined, choices: [], card: undefined })} />
 			</fieldset>
-			<button disabled={busy || !query}>Подготовить карточку</button>
+			<button disabled={locked || !query}>Подготовить карточку</button>
 		</form>
 		{searchError && <p className="hint" role="status">{searchError}</p>}
 		{!!matches.length && <aside aria-label="Похожие слова">
@@ -102,21 +113,22 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy }: { userId: str
 				<p className="hint">{card.meaningRu}</p>
 			</li>)}</ul>
 		</aside>}
-		{!!draft?.choices.length && <fieldset className="meaning-choices" disabled={busy}>
+		{!!draft?.choices.length && <fieldset className="meaning-choices" disabled={locked}>
 			<legend>Выберите значение</legend>
 			{draft.choices.map(meaning => <button key={meaning} onClick={() => void generate(meaning)}>{meaning}</button>)}
 		</fieldset>}
 		{draft?.meaningRu && <p className="hint">Выбрано значение: {draft.meaningRu}</p>}
+		{draft?.submission && <p className="hint">Сохранение не подтверждено. Повторите сохранение. После подтверждения карточку можно изменить в разделе «Слова».</p>}
 		{draft?.card && <form onSubmit={save}>
 			<h2>Проверьте карточку</h2>
 			<p className="hint">Карточка появится у обоих учеников после сохранения.</p>
-			<fieldset disabled={busy}><CardFields value={draft.card} onChange={card => change({ card })} /></fieldset>
+			<fieldset disabled={locked}><CardFields value={draft.card} onChange={card => change({ card })} /></fieldset>
 			<button className="primary" disabled={busy} type="submit">Сохранить</button>
 		</form>}
 		{error && <p className="error" role="alert">{error}</p>}
 		{storageError && <p className="error" role="alert">{storageError}</p>}
 		{busy && <p role="status">Подождите…</p>}
-		{saved && <p role="status">Карточка сохранена.</p>}
-		{draft && <button className="discard" disabled={busy} onClick={() => { setDraft(null); setError(''); setSaved(false); }}>Удалить черновик</button>}
+		{saved && <><p role="status">Карточка сохранена.</p><a className="word" href="#words" onClick={event => { event.preventDefault(); onOpen(saved); }}>Открыть в «Словах»</a></>}
+		{draft && <button className="discard" disabled={locked} onClick={() => { setDraft(null); setError(''); setSaved(null); }}>Удалить черновик</button>}
 	</section>;
 }
