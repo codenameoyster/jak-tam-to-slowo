@@ -1,4 +1,5 @@
 import { handleMe, handleSession, requireUser } from './auth';
+import { handleCards } from './cards';
 import { HttpError, protectRequest } from './http';
 
 export interface Env extends Bindings { LOCAL_HTTP?: string }
@@ -14,7 +15,11 @@ export default {
 			else {
 				const user = await requireUser(request, env);
 				if (pathname === '/api/me') response = await handleMe(request, env, user);
-				else throw new HttpError(404, 'not_found', 'Страница не найдена.');
+				else {
+					const cards = await handleCards(request, env, user);
+					if (!cards) throw new HttpError(404, 'not_found', 'Страница не найдена.');
+					response = cards;
+				}
 			}
 		} catch (error) {
 			if (error instanceof HttpError) response = Response.json({ error: error.message, code: error.code }, { status: error.status });

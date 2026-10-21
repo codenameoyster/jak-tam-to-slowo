@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react';
 import type { Direction, User } from '../shared/types';
 import { api, ApiError } from './api';
 import { Login } from './Login';
+import { Words } from './Words';
 
 export function App() {
 	const [user, setUser] = useState<User | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState('');
+	const [screen, setScreen] = useState<'study' | 'words'>('study');
 
 	async function load() {
 		setLoading(true);
@@ -36,6 +38,7 @@ export function App() {
 		try {
 			await api<void>('/session', { method: 'DELETE' });
 			setUser(null);
+			setScreen('study');
 		} catch { setError('Не удалось выйти. Проверьте подключение и повторите.'); }
 		finally { setBusy(false); }
 	}
@@ -44,7 +47,11 @@ export function App() {
 		<header className="brand"><span lang="pl">Jak tam to słowo?</span></header>
 		{loading ? <p role="status">Загрузка…</p> : user ? <>
 			<div className="account"><span>{user.displayName}</span><button className="quiet" onClick={logout} disabled={busy}>Выйти</button></div>
-			<section className="card" aria-labelledby="direction-title">
+			<nav className="tabs" aria-label="Разделы">
+				<button aria-pressed={screen === 'study'} onClick={() => setScreen('study')}>Учить</button>
+				<button aria-pressed={screen === 'words'} onClick={() => setScreen('words')}>Слова</button>
+			</nav>
+			{screen === 'words' ? <Words key={user.id} /> : <section className="card" aria-labelledby="direction-title">
 				<h1 id="direction-title">Направление перевода</h1>
 				<p className="intro">Выберите, какие слова хотите вспомнить.</p>
 				<div className="directions" role="group" aria-label="Направление перевода">
@@ -53,7 +60,7 @@ export function App() {
 				</div>
 				<p className="translation">{user.direction === 'ru-pl' ? 'С русского на польский' : 'С польского на русский'}</p>
 				<p className="saved" role="status">{busy ? 'Сохранение…' : 'Направление сохранено в вашем аккаунте.'}</p>
-			</section>
+			</section>}
 		</> : !error && <Login onLogin={setUser} />}
 		{error && <div className="notice"><p className="error" role="alert">{error}</p>{!user && <button onClick={load}>Повторить</button>}</div>}
 	</main>;

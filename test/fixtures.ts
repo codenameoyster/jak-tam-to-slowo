@@ -21,3 +21,16 @@ export const testBindings = {
 	AI_TOKEN_KEY: btoa('t'.repeat(32)),
 	CHATGPT_HOST_ID: 'test-host',
 };
+
+export const CARD_A = {
+	id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+	pl: 'Słowo', ru: 'Слово', meaningRu: 'Единица речи',
+	examplePl: 'To nowe słowo.', exampleRu: 'Это новое слово.',
+	alternativesPl: ['Wyraz'], alternativesRu: ['Словечко'],
+};
+export const CARD_B = {
+	id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+	pl: 'Dom', ru: 'Дом', meaningRu: 'Жилое здание',
+	examplePl: 'To nasz dom.', exampleRu: 'Это наш дом.',
+	alternativesPl: [], alternativesRu: ['Жилище'],
+};
