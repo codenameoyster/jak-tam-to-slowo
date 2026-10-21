@@ -1,0 +1,52 @@
+import type { GradeResult, ReviewInput, ReviewResult } from '../shared/types';
+import type { Env } from './index';
+import { HttpError } from './http';
+import { advance } from './schedule';
+
+interface ReviewRow { input_json: string; result_json: string }
+
+function identity(input: ReviewInput): string {
+	return JSON.stringify({
+		cardId: input.cardId, cardVersion: input.cardVersion, progressVersion: input.progressVersion,
+		direction: input.direction, action: input.action, ...(input.action === 'answer' ? { answer: input.answer } : {}),
+	});
+}
+
+function replay(row: ReviewRow | null | undefined, input: ReviewInput): ReviewResult | null {
+	if (!row) return null;
+	if (row.input_json !== identity(input)) throw new HttpError(409, 'review_conflict', 'Эта попытка уже сохранена с другим ответом.');
+	return JSON.parse(row.result_json);
+}
+
+export async function findReview(env: Env, userId: string, input: ReviewInput): Promise<ReviewResult | null> {
+	const row = await env.DB.prepare('SELECT input_json, result_json FROM reviews WHERE user_id = ? AND attempt_id = ?')
+		.bind(userId, input.attemptId).first<ReviewRow>();
+	return replay(row, input);
+}
+
+export async function commitReview(env: Env, userId: string, input: ReviewInput, grade: GradeResult, source: ReviewResult['source'], now: number): Promise<ReviewResult> {
+	const current = await env.DB.prepare('SELECT stage, version FROM review_state WHERE user_id = ? AND card_id = ? AND direction = ?')
+		.bind(userId, input.cardId, input.direction).first<{ stage: number; version: number }>();
+	const progress = { ...advance(current?.stage ?? 0, grade.grade, now), version: input.progressVersion + 1, lastReviewedAt: now };
+	const result: ReviewResult = { ...grade, attemptId: input.attemptId, cardId: input.cardId, direction: input.direction, source, progress };
+	const [, , saved] = await env.DB.batch<ReviewRow>([
+		env.DB.prepare(`INSERT INTO review_state (user_id, card_id, direction, stage, due_at, version, last_reviewed_at)
+			SELECT ?1, ?2, ?3, ?6, ?7, ?5 + 1, ?8
+			WHERE ?10 = ?5
+			AND EXISTS (SELECT 1 FROM cards WHERE id = ?2 AND version = ?4 AND archived = 0)
+			AND NOT EXISTS (SELECT 1 FROM reviews WHERE user_id = ?1 AND attempt_id = ?9)
+			AND (?5 = 0 OR EXISTS (SELECT 1 FROM review_state WHERE user_id = ?1 AND card_id = ?2 AND direction = ?3))
+			ON CONFLICT (user_id, card_id, direction) DO UPDATE SET stage = excluded.stage, due_at = excluded.due_at,
+				version = excluded.version, last_reviewed_at = excluded.last_reviewed_at
+			WHERE review_state.version = ?5`)
+			.bind(userId, input.cardId, input.direction, input.cardVersion, input.progressVersion,
+				progress.stage, progress.dueAt, now, input.attemptId, current?.version ?? 0),
+		// changes() reads the preceding write count: https://www.sqlite.org/lang_corefunc.html#changes
+		env.DB.prepare(`INSERT INTO reviews (user_id, attempt_id, input_json, result_json)
+			SELECT ?1, ?2, ?3, ?4 WHERE changes() = 1`).bind(userId, input.attemptId, identity(input), JSON.stringify(result)),
+		env.DB.prepare('SELECT input_json, result_json FROM reviews WHERE user_id = ? AND attempt_id = ?').bind(userId, input.attemptId),
+	]);
+	const stored = replay(saved.results[0], input);
+	if (!stored) throw new HttpError(409, 'version_conflict', 'Карточка или результат уже изменены. Откройте следующую карточку.');
+	return stored;
+}

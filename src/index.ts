@@ -3,6 +3,7 @@ import { handleCards } from './cards';
 import { handleChatgpt } from './chatgpt';
 import { handleDraft } from './drafts';
 import { HttpError, protectRequest } from './http';
+import { handleStudy } from './study';
 
 export interface Env extends Bindings { LOCAL_HTTP?: string }
 
@@ -17,6 +18,7 @@ export default {
 			else {
 				const user = await requireUser(request, env);
 				if (pathname === '/api/me') response = await handleMe(request, env, user);
+				else if (pathname === '/api/study') response = await handleStudy(request, env, user);
 				else if (pathname === '/api/cards/draft') response = await handleDraft(request, env, user);
 				else {
 					const result = await handleCards(request, env, user) ?? await handleChatgpt(request, env, user);
