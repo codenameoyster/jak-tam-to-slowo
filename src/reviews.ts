@@ -1,6 +1,8 @@
-import type { GradeResult, ReviewInput, ReviewResult } from '../shared/types';
+import type { GradeResult, ReviewInput, ReviewResult, User } from '../shared/types';
 import type { Env } from './index';
-import { HttpError } from './http';
+import { readCard } from './cards';
+import { gradeAnswer } from './grade';
+import { HttpError, methods, object, readJson } from './http';
 import { advance } from './schedule';
 
 interface ReviewRow { input_json: string; result_json: string }
@@ -49,4 +51,28 @@ export async function commitReview(env: Env, userId: string, input: ReviewInput,
 	const stored = replay(saved.results[0], input);
 	if (!stored) throw new HttpError(409, 'version_conflict', 'Карточка или результат уже изменены. Откройте следующую карточку.');
 	return stored;
+}
+
+export async function handleReview(request: Request, env: Env, user: User): Promise<Response> {
+	methods(request, ['POST']);
+	const data = object(await readJson(request), ['attemptId', 'cardId', 'cardVersion', 'progressVersion', 'direction', 'action', 'answer']);
+	const { attemptId, cardId, cardVersion, progressVersion, direction, action, answer } = data;
+	const idPattern = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/;
+	if (typeof attemptId !== 'string' || !idPattern.test(attemptId) || typeof cardId !== 'string' || !idPattern.test(cardId)
+		|| typeof cardVersion !== 'number' || !Number.isSafeInteger(cardVersion) || cardVersion < 1
+		|| typeof progressVersion !== 'number' || !Number.isSafeInteger(progressVersion) || progressVersion < 0
+		|| (direction !== 'ru-pl' && direction !== 'pl-ru')) throw new HttpError(400, 'invalid_input', 'Проверьте карточку, версию и направление.');
+	const base = { attemptId, cardId, cardVersion, progressVersion };
+	let input: ReviewInput;
+	if (action === 'answer' && typeof answer === 'string' && answer.length <= 500) input = { ...base, direction, action, answer };
+	else if (action === 'reveal' && !('answer' in data)) input = { ...base, direction, action };
+	else throw new HttpError(400, 'invalid_input', 'Укажите ответ или выберите показ ответа.');
+	const saved = await findReview(env, user.id, input);
+	if (saved) return Response.json(saved);
+	const card = await readCard(env, cardId);
+	if (card.archived || card.version !== cardVersion) throw new HttpError(409, 'version_conflict', 'Карточка уже изменена. Откройте следующую карточку.');
+	const graded = input.action === 'answer' ? await gradeAnswer(env, user.id, card, direction, input.answer) : {
+		result: { grade: 'again' as const, correction: direction === 'ru-pl' ? card.pl : card.ru, explanationRu: 'Повторите слово.' }, source: 'reveal' as const,
+	};
+	return Response.json(await commitReview(env, user.id, input, graded.result, graded.source, Date.now()));
 }
