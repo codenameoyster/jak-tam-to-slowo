@@ -1,0 +1,37 @@
+{
+	"name": "jak-tam-to-slowo",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"engines": { "node": ">=24.0.0", "bun": ">=1.4.3" },
+	"scripts": {
+		"build": "bun scripts/build.ts",
+		"dev": "wrangler dev --local --var LOCAL_HTTP:1",
+		"lint": "eslint src web shared scripts test e2e *.ts",
+		"typecheck": "node node_modules/@typescript/native/bin/tsc --noEmit -p tsconfig.json && node node_modules/@typescript/native/bin/tsc --noEmit -p web/tsconfig.json && node node_modules/@typescript/native/bin/tsc --noEmit -p test/tsconfig.json && node node_modules/@typescript/native/bin/tsc --noEmit -p scripts/tsconfig.json",
+		"test": "vitest run",
+		"test:browser": "bun run build && playwright test",
+		"credentials": "bun scripts/credentials.ts",
+		"deploy": "wrangler deploy"
+	},
+	"dependencies": {
+		"jose": "^6.2.13",
+		"react": "^19.3.1",
+		"react-dom": "^19.3.1"
+	},
+	"devDependencies": {
+		"@cloudflare/vitest-plugin": "^1.4.6",
+		"@cloudflare/workers-types": "^5.20261021.1",
+		"@playwright/test": "^1.64.1",
+		"@types/bun": "^1.4.3",
+		"@types/react": "^19.3.0",
+		"@types/react-dom": "^19.3.0",
+		"@typescript-eslint/eslint-plugin": "^8.72.0",
+		"@typescript-eslint/parser": "^8.72.0",
+		"@typescript/native": "npm:typescript@^7.0.2",
+		"eslint": "^10.13.0",
+		"typescript": "npm:@typescript/typescript6@^6.0.2",
+		"vitest": "^5.0.5",
+		"wrangler": "^4.151.3"
+	}
+}

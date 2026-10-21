@@ -1,0 +1,46 @@
+name = "jak-tam-to-slowo"
+main = "src/index.ts"
+compatibility_date = "2026-10-21"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = false
+preview_urls = false
+routes = [{ pattern = "learn.rustatian.me", custom_domain = true }]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "polish-cards"
+migrations_dir = "migrations"
+
+[ai]
+binding = "AI"
+remote = true
+
+[[ratelimits]]
+name = "LOGIN_LIMITER"
+namespace_id = "1002"
+simple = { limit = 10, period = 60 }
+
+[assets]
+directory = "dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api", "/api/*"]
+
+[build]
+command = "bun run build"
+watch_dir = ["src", "web", "shared", "public"]
+
+[dev]
+ip = "127.0.0.1"
+host = "127.0.0.1:8787"
+port = 8787
+local_protocol = "http"
+
+[secrets]
+required = ["ACCOUNTS", "AI_TOKEN_KEY", "CHATGPT_HOST_ID"]
+
+[observability]
+enabled = true
+
+[observability.traces]
+enabled = true

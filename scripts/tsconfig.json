@@ -1,0 +1,5 @@
+{
+	"extends": "../tsconfig.json",
+	"compilerOptions": { "lib": ["ES2024", "DOM"], "types": ["bun", "node"], "skipLibCheck": true },
+	"include": ["./**/*.ts", "../playwright.config.ts", "../e2e/**/*.ts"]
+}

@@ -1,0 +1,42 @@
+:root {
+	font-family: 'Trebuchet MS', 'Segoe UI', sans-serif;
+	color: #213239;
+	background: #eef3f5;
+	font-synthesis: none;
+	line-height: 1.5;
+	--accent: #9d2343;
+	--muted: #56666e;
+	--border: #cad6dc;
+}
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; }
+button, input { font: inherit; }
+button { min-height: 48px; padding: 10px 18px; border: 1px solid var(--border); border-radius: 8px; background: #fff; color: inherit; cursor: pointer; }
+button:disabled { cursor: wait; opacity: .65; }
+button:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
+.app { width: min(100%, 32rem); margin: 0 auto; padding: 32px 20px 48px; }
+.brand { padding: 0 4px 28px; font-size: 1.25rem; font-weight: 700; color: var(--accent); }
+.card { background: #fff; border: 1px solid var(--border); border-top: 4px solid var(--accent); border-radius: 16px; padding: 28px 24px; }
+h1 { margin: 0; font-size: 2rem; line-height: 1.15; letter-spacing: -.025em; }
+p { margin: 16px 0; }
+.intro { color: var(--muted); margin-bottom: 28px; }
+form { display: flex; flex-direction: column; }
+label { font-weight: 700; margin-bottom: 6px; }
+input { width: 100%; min-height: 48px; border: 1px solid #899da8; border-radius: 8px; background: #fff; color: inherit; padding: 10px 12px; margin-bottom: 20px; }
+.primary { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 700; margin-top: 8px; }
+.primary:hover { background: #7c1934; }
+.error { color: #9d2343; }
+form .error { margin: 0 0 16px; }
+.account { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 4px 16px; }
+.account > span { overflow-wrap: anywhere; font-weight: 700; }
+.quiet { background: transparent; border-color: transparent; text-decoration: underline; text-underline-offset: 4px; }
+.directions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.directions button { padding-inline: 8px; font-weight: 700; }
+.directions button[aria-pressed='true'] { color: #fff; background: var(--accent); border-color: var(--accent); }
+.translation { font-weight: 700; margin: 24px 0 8px; }
+.saved { color: var(--muted); font-size: .9375rem; margin-bottom: 0; }
+.notice { padding: 0 4px; }
+@media (min-width: 600px) {
+	.app { padding-top: 64px; }
+	.card { padding: 36px 32px; }
+}
