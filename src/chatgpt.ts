@@ -13,7 +13,7 @@ const SCOPE = 'openid profile email offline_access resource.invoke chatgpt.token
 const failed = () => new HttpError(400, 'sign_in_failed', 'Вход в ChatGPT не удался. Начните заново.');
 const unavailable = () => new HttpError(503, 'ai_unavailable', 'ChatGPT сейчас недоступен. Попробуйте снова.');
 const notEligible = () => new HttpError(403, 'ai_not_eligible', 'Аккаунт не предоставил доступ к моделям по подписке ChatGPT.');
-const disconnected = () => new HttpError(409, 'ai_disconnected', 'Подключите ChatGPT в настройках.');
+const disconnected = () => new HttpError(409, 'ai_disconnected', 'ChatGPT не подключён. Владелец может подключить его в настройках.');
 
 interface Connection {
 	user_id: string; client_id: string; host_id: string; issuer: string; subject: string; account_label: string;
@@ -48,9 +48,9 @@ async function unseal(secret: CryptoKey, value: string, userId: string, field: s
 	const raw = bytes(value);
 	return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: raw.subarray(0, 12), additionalData: encode(`${userId}:${field}`) }, secret, raw.subarray(12)));
 }
-function view(row: Connection | null): ConnectionView {
+function view(row: Connection | null, canManage: boolean): ConnectionView {
 	const connected = Boolean(row?.refresh_token);
-	return { connected, accountLabel: row?.account_label ?? null, model: connected ? row!.model : null, models: connected ? JSON.parse(row!.models) : [] };
+	return { connected, canManage, accountLabel: row?.account_label ?? null, model: connected ? row!.model : null, models: connected ? JSON.parse(row!.models) : [] };
 }
 export async function providerFetch(url: string, init: RequestInit = {}): Promise<Response> {
 	try { return await fetch(url, { ...init, signal: init.signal ?? AbortSignal.timeout(15_000), redirect: 'manual' }); }
@@ -141,8 +141,8 @@ async function currentToken(env: Env, userId: string, staleVersion?: number): Pr
 	throw unavailable();
 }
 
-export function accessToken(env: Env, userId: string, staleVersion?: number): Promise<{ access: string; version: number; model: string }> {
-	const pending = currentToken(env, userId, staleVersion);
+export function accessToken(env: Env, staleVersion?: number): Promise<{ access: string; version: number; model: string }> {
+	const pending = currentToken(env, env.CHATGPT_OWNER_ID, staleVersion);
 	// Retain rotating credentials after browser disconnect: https://developers.cloudflare.com/workers/runtime-apis/context/#waituntil
 	waitUntil(pending.catch(() => {}));
 	return pending;
@@ -214,7 +214,7 @@ async function finish(request: Request, env: Env, user: User): Promise<Response>
 				await seal(secret, body.access_token, user.id, 'access_token'), await seal(secret, body.refresh_token, user.id, 'refresh_token'), await seal(secret, body.id_token, user.id, 'id_token'),
 				body.scope, now + body.expires_in * 1000, Number.isFinite(refreshAfter) ? refreshAfter : null, models.some(model => model.slug === row?.model) ? row!.model : models[0].slug, JSON.stringify(models), now, attempt.state, now, now, attempt.connection_version).run();
 		if (!saved.meta.changes) throw failed();
-		return Response.json(view(await readConnection(env, user.id)));
+		return Response.json(view(await readConnection(env, user.id), true));
 	} finally { await env.DB.prepare('DELETE FROM oauth_attempts WHERE state=?').bind(attempt.state).run(); }
 }
 
@@ -240,21 +240,23 @@ async function disconnect(env: Env, user: User): Promise<Response> {
 			}
 		} catch { /* The user can remove access in ChatGPT Settings. */ }
 	}
-	return Response.json({ ...view(await readConnection(env, user.id)), revocationConfirmed });
+	return Response.json({ ...view(await readConnection(env, user.id), true), revocationConfirmed });
 }
 
 export async function handleChatgpt(request: Request, env: Env, user: User): Promise<Response | null> {
 	const match = /^\/api\/ai\/connection(?:\/(start|finish))?$/.exec(new URL(request.url).pathname);
 	if (!match) return null;
 	methods(request, match[1] ? ['POST'] : ['GET', 'PATCH', 'DELETE']);
+	const canManage = user.id === env.CHATGPT_OWNER_ID;
+	if (request.method !== 'GET' && !canManage) throw new HttpError(403, 'ai_owner_required', 'Подключением ChatGPT управляет только владелец.');
 	if (match[1] === 'start') return start(request, env, user);
 	if (match[1] === 'finish') return finish(request, env, user);
 	if (request.method === 'DELETE') return disconnect(env, user);
 	if (request.method === 'PATCH') {
 		const data = object(await readJson(request), ['model']), row = await readConnection(env, user.id);
 		if (!row?.refresh_token) throw disconnected();
-		if (!view(row).models.some(model => model.slug === data.model)) throw new HttpError(400, 'invalid_model', 'Выберите доступную модель.');
+		if (!view(row, canManage).models.some(model => model.slug === data.model)) throw new HttpError(400, 'invalid_model', 'Выберите доступную модель.');
 		await env.DB.prepare('UPDATE ai_connections SET model=?,updated_at=? WHERE user_id=? AND version=?').bind(data.model, Date.now(), user.id, row.version).run();
 	}
-	return Response.json(view(await readConnection(env, user.id)));
+	return Response.json(view(await readConnection(env, env.CHATGPT_OWNER_ID), canManage));
 }

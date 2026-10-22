@@ -54,6 +54,7 @@ export type DraftResult = { kind: 'choices'; choices: string[] } | { kind: 'draf
 
 export interface ConnectionView {
 	connected: boolean;
+	canManage: boolean;
 	accountLabel: string | null;
 	model: string | null;
 	models: { slug: string; name: string }[];

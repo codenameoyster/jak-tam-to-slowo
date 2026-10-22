@@ -42,23 +42,28 @@ export function Settings() {
 
 	return <section className="card" aria-labelledby="settings-title" aria-busy={busy}>
 		<h1 id="settings-title">Настройки</h1>
-		<h2>Личный ChatGPT</h2>
-		<p>Приложение использует вашу подписку ChatGPT. Тексты карточек и ответы отправляются в OpenAI. У каждого ученика своё подключение.</p>
-		<p className="hint">В Plus общий лимит за пять часов действует для всех подключённых приложений. Этот лимит не действует для Pro. Возможны другие ограничения.</p>
-		<p><a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer">Использование ChatGPT</a></p>
+		<h2>Общий ChatGPT</h2>
+		<p>Оба ученика используют подписку владельца. Тексты карточек и ответы отправляются в OpenAI.</p>
 		{connection && <>
 			<p>{connection.connected ? 'ChatGPT подключён.' : 'ChatGPT не подключён.'}</p>
 			{connection.accountLabel && <p className="hint">{connection.accountLabel}</p>}
-			{connection.connected && <><label htmlFor="chatgpt-model">Модель</label>
+			{connection.canManage ? <>
+				<p className="hint">В Plus общий лимит за пять часов действует для всех подключённых приложений. Этот лимит не действует для Pro. Возможны другие ограничения.</p>
+				<p><a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer">Использование ChatGPT</a></p>
+				{connection.connected && <><label htmlFor="chatgpt-model">Модель</label>
 				<select id="chatgpt-model" value={connection.model ?? ''} disabled={busy} onChange={event => void select(event.target.value)}>
 					{connection.models.map(model => <option key={model.slug} value={model.slug}>{model.name}</option>)}
 				</select></>}
-			<div className="edit-actions">
-				<button disabled={busy} onClick={() => void start()}>{connection.connected ? 'Подключить заново' : 'Продолжить с ChatGPT'}</button>
-				{connection.connected && <button disabled={busy} onClick={() => void disconnect()}>Отключить</button>}
-			</div>
+				<div className="edit-actions">
+					<button disabled={busy} onClick={() => void start()}>{connection.connected ? 'Подключить заново' : 'Продолжить с ChatGPT'}</button>
+					{connection.connected && <button disabled={busy} onClick={() => void disconnect()}>Отключить</button>}
+				</div>
+			</> : <>
+				{connection.connected && <p>Модель: {connection.models.find(model => model.slug === connection.model)?.name ?? connection.model}</p>}
+				<p className="hint">Подключением управляет владелец. Ваша подписка ChatGPT не нужна.</p>
+			</>}
 		</>}
-		{url && <form onSubmit={finish}>
+		{connection?.canManage && url && <form onSubmit={finish}>
 			<ol>
 				<li><a href={url} target="_blank" rel="noopener noreferrer">Открыть страницу входа ChatGPT</a></li>
 				<li>Разрешите доступ. После этого браузер покажет страницу ошибки для 127.0.0.1.</li>

@@ -71,8 +71,8 @@ async function readStream(response: Response): Promise<unknown> {
 	} finally { await reader.cancel().catch(() => {}); }
 }
 
-export async function requestAiJson(env: Env, userId: string, instructions: string, input: unknown): Promise<unknown> {
-	let token = await accessToken(env, userId), response: Response | undefined;
+export async function requestAiJson(env: Env, instructions: string, input: unknown): Promise<unknown> {
+	let token = await accessToken(env), response: Response | undefined;
 	const signal = AbortSignal.timeout(45_000);
 	try {
 		for (let attempt = 0; attempt < 2; attempt++) {
@@ -83,7 +83,7 @@ export async function requestAiJson(env: Env, userId: string, instructions: stri
 			const error = providerError(response.status, body && typeof body === 'object' && !Array.isArray(body) ? body as Record<string, unknown> : {});
 			if (response.status !== 401 || attempt) throw error;
 			logProviderError(error.status, error.code, response.headers.get('x-request-id'));
-			token = await accessToken(env, userId, token.version);
+			token = await accessToken(env, token.version);
 		}
 		throw interrupted();
 	} catch (cause) {

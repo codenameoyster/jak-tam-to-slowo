@@ -1,18 +1,18 @@
-import type { DraftResult, User } from '../shared/types';
+import type { DraftResult } from '../shared/types';
 import type { Env } from './index';
 import { requestAiJson } from './ai';
 import { parseCard } from './cards';
 import { HttpError, methods, object, readJson, text } from './http';
 import instructions from './prompts/card.txt';
 
-export async function handleDraft(request: Request, env: Env, user: User): Promise<Response> {
+export async function handleDraft(request: Request, env: Env): Promise<Response> {
 	methods(request, ['POST']);
 	const data = object(await readJson(request), ['text', 'language', 'meaningRu']);
 	const input = { text: text(data.text, 200).trim(), language: data.language,
 		...('meaningRu' in data ? { meaningRu: text(data.meaningRu, 200).trim() } : {}),
 	};
 	if (input.language !== 'pl' && input.language !== 'ru') throw new HttpError(400, 'invalid_input', 'Выберите польский или русский язык.');
-	const value = await requestAiJson(env, user.id, instructions, input);
+	const value = await requestAiJson(env, instructions, input);
 	let result: DraftResult;
 	try {
 		const data = object(value, ['kind', 'card', 'choices']);

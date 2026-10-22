@@ -73,7 +73,7 @@ export async function handleReview(request: Request, env: Env, user: User): Prom
 	if (card.archived || card.version !== cardVersion) throw new HttpError(409, 'version_conflict', 'Карточка уже изменена. Откройте следующую карточку.');
 	let graded: { result: GradeResult; source: ReviewResult['source'] };
 	try {
-		graded = input.action === 'answer' ? await gradeAnswer(env, user.id, card, direction, input.answer) : {
+		graded = input.action === 'answer' ? await gradeAnswer(env, card, direction, input.answer) : {
 			result: { grade: 'again', correction: direction === 'ru-pl' ? card.pl : card.ru, explanationRu: 'Повторите слово.' }, source: 'reveal',
 		};
 	} catch (error) {

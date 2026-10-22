@@ -20,7 +20,7 @@ async function connect(page: Page, account: string, headers: Record<string, stri
 for (const scenario of [
 	{ name: 'exact review', screen: 'study', path: '/reviews', method: 'POST', answer: 'Dom', action: 'Проверить' },
 	{ name: 'semantic review', screen: 'study', path: '/reviews', method: 'POST', answer: 'domu', action: 'Проверить' },
-	{ name: 'personal generation', screen: 'add', path: '/cards/draft', method: 'POST', answer: 'мой ответ', action: 'Подготовить карточку' },
+	{ name: 'shared generation', screen: 'add', path: '/cards/draft', method: 'POST', answer: 'мой ответ', action: 'Подготовить карточку' },
 	{ name: 'preference change', screen: 'study', path: '/me', method: 'PATCH', answer: 'мой ответ', action: 'PL -> RU' },
 	{ name: 'disconnect', screen: 'settings', path: '/ai/connection', method: 'DELETE', answer: 'мой ответ', action: 'Отключить' },
 	{ name: 'model change', screen: 'settings', path: '/ai/connection', method: 'PATCH', answer: 'мой ответ', action: 'model' },
@@ -54,9 +54,9 @@ for (const scenario of [
 		await other.getByRole('button', { name: 'Выйти', exact: true }).click();
 		await login(other, USER_B);
 		expect((await other.request.patch('/api/me', { headers, data: { direction: 'ru-pl' } })).status()).toBe(200);
-		await connect(other, 'b', headers);
 		const before = await other.request.get('/api/ai/connection');
 		const connection = await before.json();
+		expect(connection).toMatchObject({ connected: true, canManage: false, accountLabel: 'a@example.test', model: 'a-first' });
 		await expect(page.getByText(USER_A.displayName, { exact: true })).toBeVisible();
 		const rejected = page.waitForResponse(response => response.url().endsWith(`/api${scenario.path}`) && response.request().method() === scenario.method);
 		if (scenario.action === 'model') await page.getByLabel('Модель', { exact: true }).selectOption('a-second');
@@ -87,7 +87,7 @@ for (const scenario of [
 	} finally {
 		for (const user of [USER_A, USER_B]) {
 			await page.request.post('/api/session', { headers, data: { username: user.username, password: user.password } });
-			await page.request.delete('/api/ai/connection', { headers });
+			if (user.id === USER_A.id) expect((await page.request.delete('/api/ai/connection', { headers })).status()).toBe(200);
 			await page.request.patch('/api/me', { headers, data: { direction: 'ru-pl' } });
 		}
 		const list: CardPage = await (await page.request.get('/api/cards')).json();

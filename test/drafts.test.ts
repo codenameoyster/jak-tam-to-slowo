@@ -22,9 +22,9 @@ beforeEach(async () => {
 const generate = (body: unknown = { text: 'słowo', language: 'pl' }) => request('/api/cards/draft', { method: 'POST', cookie, body });
 const calls = () => provider.calls.filter(call => call.url.endsWith('/responses'));
 
-it('prepares the exact Polish example with the signed-in learner credentials and writes no card', async () => {
-	await connect(USER_B.id, 'b');
+it('prepares the exact Polish example with the owner credentials for another learner and writes no card', async () => {
 	await request('/api/ai/connection', { method: 'PATCH', cookie, body: { model: 'a-second' } });
+	cookie = await login(USER_B.id);
 	const response = await generate();
 	expect(response.status).toBe(200);
 	expect(await response.json()).toMatchObject({ kind: 'draft', card: {

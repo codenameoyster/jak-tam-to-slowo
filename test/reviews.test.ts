@@ -205,13 +205,14 @@ it.each([
 	expect(await tables()).toEqual({ state: [], reviews: [] });
 });
 
-it('uses the signed-in learner’s model and credentials when another learner is connected', async () => {
-	await connect(USER_B.id, 'b');
+it('uses the owner’s model and credentials for the other learner’s semantic review', async () => {
 	expect((await request('/api/ai/connection', { method: 'PATCH', cookie, body: { model: 'a-second' } })).status).toBe(200);
+	cookie = await login(USER_B.id);
 	expect((await review()).status).toBe(200);
 	expect(calls()[0].headers.get('Authorization')).toBe('Bearer access-a');
 	expect(await calls()[0].json()).toMatchObject({ model: 'a-second', store: false, stream: true });
-	expect((await tables()).state).toMatchObject([{ user_id: USER_A.id }]);
+	expect((await tables()).state).toMatchObject([{ user_id: USER_B.id }]);
+	expect((await tables()).reviews).toMatchObject([{ user_id: USER_B.id }]);
 });
 
 it('requires an authenticated same-origin POST', async () => {
@@ -255,7 +256,7 @@ it.each([
 	{ name: 'logout', path: '/api/session', method: 'DELETE', body: undefined },
 	{ name: 'shared edit', path: `/api/cards/${CARD_A.id}`, method: 'PATCH', body: { version: 1, archived: true } },
 ])('rejects a stale displayed account before $name', async ({ path, method, body }) => {
-	const other = await connect(USER_B.id, 'b');
+	const other = await login(USER_B.id);
 	const connections = await env.DB.prepare('SELECT * FROM ai_connections ORDER BY user_id').all();
 	const count = provider.calls.length;
 	const response = await request(path, { method, body, cookie: other, accountId: USER_A.id });

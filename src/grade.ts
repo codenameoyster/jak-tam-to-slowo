@@ -8,7 +8,7 @@ function normalized(value: string): string {
 	return value.normalize('NFC').toLowerCase().trim().replace(/\s+/g, ' ');
 }
 
-export async function gradeAnswer(env: Env, userId: string, card: Card, direction: Direction, answer: string): Promise<{ result: GradeResult; source: 'exact' | 'ai' }> {
+export async function gradeAnswer(env: Env, card: Card, direction: Direction, answer: string): Promise<{ result: GradeResult; source: 'exact' | 'ai' }> {
 	const correction = direction === 'ru-pl' ? card.pl : card.ru;
 	const alternatives = direction === 'ru-pl' ? card.alternativesPl : card.alternativesRu;
 	const value = normalized(answer);
@@ -16,7 +16,7 @@ export async function gradeAnswer(env: Env, userId: string, card: Card, directio
 	if ([correction, ...alternatives].some(term => normalized(term) === value)) {
 		return { result: { grade: 'correct', correction, explanationRu: 'Верно.' }, source: 'exact' };
 	}
-	const response = await requestAiJson(env, userId, instructions, { card, direction, answer });
+	const response = await requestAiJson(env, instructions, { card, direction, answer });
 	try {
 		const data = object(response, ['grade', 'correction', 'explanationRu']);
 		if (data.grade !== 'correct' && data.grade !== 'almost' && data.grade !== 'again') throw new Error('Invalid grade.');

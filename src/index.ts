@@ -22,7 +22,7 @@ export default {
 				if (pathname === '/api/me') response = await handleMe(request, env, user);
 				else if (pathname === '/api/study') response = await handleStudy(request, env, user);
 				else if (pathname === '/api/reviews') response = await handleReview(request, env, user);
-				else if (pathname === '/api/cards/draft') response = await handleDraft(request, env, user);
+				else if (pathname === '/api/cards/draft') response = await handleDraft(request, env);
 				else if (pathname === '/api/dictation') response = await handleDictation(request, env, user);
 				else {
 					const result = await handleCards(request, env, user) ?? await handleChatgpt(request, env, user);

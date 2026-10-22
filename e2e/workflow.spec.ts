@@ -2,44 +2,56 @@ import { expect, test, type Page } from '@playwright/test';
 import type { Card, CardPage, ReviewResult, StudyBatch } from '../shared/types';
 import { USER_A, USER_B, WORD_DRAFT } from '../test/fixtures';
 
-async function signIn(page: Page, user: typeof USER_A, account: string) {
+async function signIn(page: Page, user: typeof USER_A) {
 	await page.setExtraHTTPHeaders({ 'CF-Connecting-IP': `workflow-${crypto.randomUUID()}` });
 	await page.goto('/');
 	await page.getByLabel('Имя пользователя').fill(user.username);
 	await page.getByLabel('Пароль', { exact: true }).fill(user.password);
 	await page.getByRole('button', { name: 'Войти', exact: true }).click();
 	await expect(page.getByText(user.displayName, { exact: true })).toBeVisible();
+}
+
+async function connectOwner(page: Page) {
 	await page.getByRole('button', { name: 'Настройки', exact: true }).click();
 	await page.getByRole('button', { name: /Продолжить с ChatGPT|Подключить заново/ }).click();
 	const authorization = new URL((await page.getByRole('link', { name: 'Открыть страницу входа ChatGPT' }).getAttribute('href'))!);
 	const callback = new URL(authorization.searchParams.get('redirect_uri')!);
-	callback.search = new URLSearchParams({ state: authorization.searchParams.get('state')!, code: `${account}:${authorization.searchParams.get('nonce')}`, client_id: `oaiapp_${account}` }).toString();
+	callback.search = new URLSearchParams({ state: authorization.searchParams.get('state')!, code: `a:${authorization.searchParams.get('nonce')}`, client_id: 'oaiapp_a' }).toString();
 	await page.getByLabel('Адрес со страницы ошибки').fill(callback.href);
 	await page.getByRole('button', { name: 'Подключить', exact: true }).click();
-	await expect(page.getByText(`${account}@example.test`, { exact: true })).toBeVisible();
+	await expect(page.getByText('a@example.test', { exact: true })).toBeVisible();
 }
 
-test('shares cards between two learners while keeping progress, retries, and connections separate', async ({ page, browser, baseURL }) => {
+test('shares the owner connection for generation and grading while keeping learner progress and retries separate', async ({ page, browser, baseURL }) => {
 	const context = await browser.newContext({ baseURL });
 	const other = await context.newPage();
 	const headers = { Origin: baseURL! };
 	let card: Card | undefined;
 	try {
-		await signIn(page, USER_A, 'a');
-		await signIn(other, USER_B, 'b');
-		await page.getByRole('button', { name: 'Добавить', exact: true }).click();
-		await page.getByLabel('Слово или выражение').fill('słowo');
-		await page.getByRole('button', { name: 'Подготовить карточку', exact: true }).click();
-		await expect(page.getByLabel('Пример по-польски')).toHaveValue(WORD_DRAFT.examplePl);
-		const saved = page.waitForResponse(response => response.url().endsWith('/api/cards') && response.request().method() === 'POST');
-		await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
+		await signIn(page, USER_A);
+		await connectOwner(page);
+		await signIn(other, USER_B);
+		await other.getByRole('button', { name: 'Добавить', exact: true }).click();
+		await other.getByLabel('Слово или выражение').fill('słowo');
+		await other.getByRole('button', { name: 'Подготовить карточку', exact: true }).click();
+		await expect(other.getByLabel('Пример по-польски')).toHaveValue(WORD_DRAFT.examplePl);
+		const saved = other.waitForResponse(response => response.url().endsWith('/api/cards') && response.request().method() === 'POST');
+		await other.getByRole('button', { name: 'Сохранить', exact: true }).click();
 		expect((await saved).status()).toBe(201);
 		card = await (await saved).json();
+		expect(card?.createdBy).toBe(USER_B.id);
 		const cardId = card!.id;
-		await expect(page.getByRole('status')).toContainText('Карточка сохранена.');
-		await other.getByRole('button', { name: 'Слова', exact: true }).click();
-		await expect(other.getByRole('button', { name: 'Słowo / Слово', exact: true })).toBeVisible();
+		await expect(other.getByRole('status')).toContainText('Карточка сохранена.');
+		await page.getByRole('button', { name: 'Слова', exact: true }).click();
+		await expect(page.getByRole('button', { name: 'Słowo / Слово', exact: true })).toBeVisible();
 		await other.getByRole('button', { name: 'Учить', exact: true }).click();
+		await other.getByRole('button', { name: 'PL -> RU', exact: true }).click();
+		await other.getByLabel('Ответ по-русски').fill('термин');
+		const semantic = other.waitForResponse(response => response.url().endsWith('/api/reviews'));
+		await other.getByRole('button', { name: 'Проверить', exact: true }).click();
+		expect((await semantic).status()).toBe(200);
+		expect(await (await semantic).json()).toMatchObject({ source: 'ai', grade: 'again', progress: { version: 1 } });
+		await expect(other.getByRole('heading', { name: 'Повторите', exact: true })).toBeVisible();
 		await other.getByRole('button', { name: 'RU -> PL', exact: true }).click();
 		await expect(other.getByTestId('study-term')).toHaveText('Слово');
 		await expect(other.getByText(WORD_DRAFT.examplePl, { exact: true })).toHaveCount(0);
@@ -50,6 +62,15 @@ test('shares cards between two learners while keeping progress, retries, and con
 		await expect(other.getByRole('alert')).toContainText('ChatGPT не принял подключение');
 		await expect(other.getByLabel('Ответ по-польски')).toHaveValue('ошибка подключения');
 		await expect(other.getByRole('button', { name: 'Выйти', exact: true })).toBeVisible();
+		expect((await page.request.delete('/api/ai/connection', { headers })).status()).toBe(200);
+		const disconnected = other.waitForResponse(response => response.url().endsWith('/api/reviews'));
+		await other.getByRole('button', { name: 'Повторить', exact: true }).click();
+		expect((await disconnected).status()).toBe(409);
+		expect(await (await disconnected).json()).toMatchObject({ code: 'ai_disconnected' });
+		await expect(other.getByLabel('Ответ по-польски')).toBeEnabled();
+		const draft = await other.request.post('/api/cards/draft', { headers, data: { text: 'słowo', language: 'pl' } });
+		expect(draft.status()).toBe(409);
+		expect(await draft.json()).toMatchObject({ code: 'ai_disconnected' });
 		await page.getByRole('button', { name: 'Учить', exact: true }).click();
 		await page.getByRole('button', { name: 'RU -> PL', exact: true }).click();
 		await expect(page.getByTestId('study-term')).toHaveText('Слово');
@@ -107,7 +128,7 @@ test('shares cards between two learners while keeping progress, retries, and con
 		if (active) expect((await page.request.patch(`/api/cards/${active.id}`, { headers, data: { version: active.version, archived: true } })).status()).toBe(200);
 		await page.request.patch('/api/me', { headers, data: { direction: 'ru-pl' } });
 		await page.request.delete('/api/ai/connection', { headers });
-		await other.request.delete('/api/ai/connection', { headers });
+		await other.request.patch('/api/me', { headers, data: { direction: 'ru-pl' } });
 		await context.close();
 	}
 });

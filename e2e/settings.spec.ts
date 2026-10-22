@@ -3,10 +3,8 @@ import { USER_A, USER_B } from '../test/fixtures';
 
 test.afterEach(async ({ page, baseURL }) => {
 	const headers = { Origin: baseURL!, 'CF-Connecting-IP': `settings-cleanup-${crypto.randomUUID()}` };
-	for (const user of [USER_A, USER_B]) {
-		expect((await page.request.post('/api/session', { headers, data: { username: user.username, password: user.password } })).status()).toBe(200);
-		expect((await page.request.delete('/api/ai/connection', { headers })).status()).toBe(200);
-	}
+	expect((await page.request.post('/api/session', { headers, data: { username: USER_A.username, password: USER_A.password } })).status()).toBe(200);
+	expect((await page.request.delete('/api/ai/connection', { headers })).status()).toBe(200);
 });
 
 async function login(page: Page, user = USER_A) {
@@ -31,7 +29,7 @@ async function finish(page: Page, callback: URL) {
 	await page.getByRole('button', { name: 'Подключить', exact: true }).click();
 }
 
-test('keeps personal connections and models separate and reports unconfirmed revocation', async ({ page, browser }) => {
+test('shows shared status with owner-only controls and reports unconfirmed revocation', async ({ page, browser }) => {
 	await login(page);
 	await finish(page, await start(page, 'a'));
 	await expect(page.getByText('a@example.test', { exact: true })).toBeVisible();
@@ -45,14 +43,20 @@ test('keeps personal connections and models separate and reports unconfirmed rev
 	const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
 	const other = await context.newPage();
 	await login(other, USER_B);
-	await expect(other.getByText('ChatGPT не подключён.', { exact: true })).toBeVisible();
-	await finish(other, await start(other, 'b'));
-	await expect(other.getByText('b@example.test', { exact: true })).toBeVisible();
-	await expect(other.getByLabel('Модель', { exact: true }).locator('option')).toHaveText(['b first', 'b second']);
+	await expect(other.getByText('a@example.test', { exact: true })).toBeVisible();
+	await expect(other.getByText('Модель: a second', { exact: true })).toBeVisible();
+	await expect(other.getByLabel('Модель', { exact: true })).toHaveCount(0);
+	await expect(other.getByRole('button', { name: /Продолжить с ChatGPT|Подключить заново|Отключить/ })).toHaveCount(0);
+	await expect(other.getByRole('link', { name: 'Использование ChatGPT' })).toHaveCount(0);
+	await expect(other.getByLabel('Адрес со страницы ошибки')).toHaveCount(0);
 	await page.getByRole('button', { name: 'Отключить', exact: true }).click();
 	await expect(page.getByText('ChatGPT не подключён.', { exact: true })).toBeVisible();
 	await expect(page.getByRole('status')).toContainText('ChatGPT не подтвердил отключение');
-	await expect(other.getByLabel('Модель', { exact: true })).toHaveValue('b-first');
+	await other.reload();
+	await other.getByRole('button', { name: 'Настройки', exact: true }).click();
+	await expect(other.getByText('ChatGPT не подключён.', { exact: true })).toBeVisible();
+	await expect(other.getByText('Подключением управляет владелец. Ваша подписка ChatGPT не нужна.', { exact: true })).toBeVisible();
+	await expect(other.getByRole('button', { name: /Продолжить с ChatGPT|Подключить заново|Отключить/ })).toHaveCount(0);
 	await page.screenshot({ path: '.wrangler/playwright/settings-mobile.png', fullPage: true });
 	expect(await page.evaluate(() => ({ local: { ...localStorage }, session: { ...sessionStorage } }))).toEqual({ local: {}, session: {} });
 	await context.close();

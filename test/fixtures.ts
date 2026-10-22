@@ -20,6 +20,7 @@ export const testBindings = {
 	ACCOUNTS: testAccountSecret,
 	AI_TOKEN_KEY: btoa('t'.repeat(32)),
 	CHATGPT_HOST_ID: 'test-host',
+	CHATGPT_OWNER_ID: USER_A.id,
 };
 
 export const CARD_A = {

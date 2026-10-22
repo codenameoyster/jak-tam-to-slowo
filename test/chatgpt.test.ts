@@ -5,6 +5,7 @@ import { login, request } from './client';
 import { USER_A, USER_B } from './fixtures';
 import { CALLBACK, createOpenAI, SCOPE } from './openai';
 import { accessToken } from '../src/chatgpt';
+import { seedLegacyConnection } from './legacy-connection';
 
 let provider: Awaited<ReturnType<typeof createOpenAI>>;
 beforeEach(async () => { provider = await createOpenAI(); vi.spyOn(globalThis, 'fetch').mockImplementation(provider.fetch); });
@@ -23,15 +24,15 @@ function finish(cookie: string, address: URL) { return request('/api/ai/connecti
 async function connect(cookie: string, account = 'a') {
 	const response = await finish(cookie, address(await start(cookie), account));
 	expect(response.status).toBe(200);
-	expect(Object.keys(await response.json()).sort()).toEqual(['accountLabel', 'connected', 'model', 'models']);
+	expect(Object.keys(await response.json()).sort()).toEqual(['accountLabel', 'canManage', 'connected', 'model', 'models']);
 }
 const record = (id = USER_A.id) => env.DB.prepare('SELECT * FROM ai_connections WHERE user_id = ?').bind(id).first<Record<string, string | number | null>>();
 const view = (cookie: string) => request('/api/ai/connection', { cookie }).then(response => response.json());
 
-it('binds fresh state, nonce and PKCE to each real application session', async () => {
-	const a = await login(USER_A.id), b = await login(USER_B.id);
+it('binds fresh state, nonce and PKCE to each owner application session', async () => {
+	const a = await login(USER_A.id), b = await login(USER_A.id);
 	const first = await start(a), second = await start(b);
-	const rows = await env.DB.prepare('SELECT * FROM oauth_attempts ORDER BY user_id').all<{ state: string; nonce: string; verifier: string; session_hash: string; expires_at: number }>();
+	const rows = await env.DB.prepare('SELECT * FROM oauth_attempts ORDER BY rowid').all<{ state: string; nonce: string; verifier: string; session_hash: string; expires_at: number }>();
 	expect(rows.results).toHaveLength(2);
 	const [one, two] = rows.results;
 	expect(one.state).not.toBe(two.state);
@@ -47,11 +48,11 @@ it('binds fresh state, nonce and PKCE to each real application session', async (
 });
 
 it.each([
-	{ name: 'another learner', otherUser: USER_B.id },
-	{ name: 'another session of the same learner', otherUser: USER_A.id },
-])('rejects a callback submitted by $name without consuming the owner attempt', async ({ otherUser }) => {
+	{ name: 'another learner', otherUser: USER_B.id, status: 403 },
+	{ name: 'another session of the owner', otherUser: USER_A.id, status: 400 },
+])('rejects a callback submitted by $name without consuming the owner attempt', async ({ otherUser, status }) => {
 	const cookie = await login(USER_A.id), callback = address(await start(cookie));
-	expect((await finish(await login(otherUser), callback)).status).toBe(400);
+	expect((await finish(await login(otherUser), callback)).status).toBe(status);
 	expect(await env.DB.prepare('SELECT count(*) AS n FROM ai_connections WHERE user_id=?').bind(USER_B.id).first('n')).toBe(0);
 	expect((await finish(cookie, callback)).status).toBe(200);
 });
@@ -116,12 +117,12 @@ it.each([
 	expect((await finish(cookie, callback)).status).toBe(400);
 });
 
-it('isolates identities and visible models and encrypts all retained tokens', async () => {
+it('shares owner status and models, restricts management, and keeps owner encryption context', async () => {
 	const a = await login(USER_A.id), b = await login(USER_B.id);
 	await connect(a);
-	await connect(b, 'b');
-	expect(await view(a)).toEqual({ connected: true, accountLabel: 'a@example.test', model: 'a-first', models: [{ slug: 'a-first', name: 'a first' }, { slug: 'a-second', name: 'a second' }] });
-	expect(await view(b)).toEqual({ connected: true, accountLabel: 'b@example.test', model: 'b-first', models: [{ slug: 'b-first', name: 'b first' }, { slug: 'b-second', name: 'b second' }] });
+	await seedLegacyConnection();
+	expect(await view(a)).toEqual({ connected: true, canManage: true, accountLabel: 'a@example.test', model: 'a-first', models: [{ slug: 'a-first', name: 'a first' }, { slug: 'a-second', name: 'a second' }] });
+	expect(await view(b)).toEqual({ connected: true, canManage: false, accountLabel: 'a@example.test', model: 'a-first', models: [{ slug: 'a-first', name: 'a first' }, { slug: 'a-second', name: 'a second' }] });
 	const row = (await record())!;
 	expect(row).toMatchObject({ issuer: 'https://auth.openai.com', subject: 'subject-a', client_id: 'oaiapp_a', host_id: env.CHATGPT_HOST_ID, scopes: SCOPE });
 	expect(row.expires_at).toBeGreaterThan(Date.now() + 3_500_000);
@@ -177,14 +178,15 @@ it('accepts an omitted returning client and preserves an available model selecti
 it.each([
 	{ name: 'confirmed revocation', status: 200, confirmed: true },
 	{ name: 'unconfirmed revocation', status: 503, confirmed: false },
-])('clears only the signed-in learner credentials after $name', async ({ status, confirmed }) => {
+])('clears only the owner credentials after $name and shares disconnected status', async ({ status, confirmed }) => {
 	const a = await login(USER_A.id), b = await login(USER_B.id);
-	await connect(a); await connect(b, 'b');
+	await connect(a); await seedLegacyConnection();
 	const other = await record(USER_B.id), pending = address(await start(a));
 	provider.revokeStatus = status;
 	const response = await request('/api/ai/connection', { method: 'DELETE', cookie: a });
 	expect(response.status).toBe(200);
-	expect(await response.json()).toEqual({ connected: false, accountLabel: 'a@example.test', model: null, models: [], revocationConfirmed: confirmed });
+	expect(await response.json()).toEqual({ connected: false, canManage: true, accountLabel: 'a@example.test', model: null, models: [], revocationConfirmed: confirmed });
+	expect(await view(b)).toEqual({ connected: false, canManage: false, accountLabel: 'a@example.test', model: null, models: [] });
 	expect(await record()).toMatchObject({ client_id: 'oaiapp_a', subject: 'subject-a', host_id: env.CHATGPT_HOST_ID, access_token: null, refresh_token: null, id_token: null });
 	expect(await record(USER_B.id)).toEqual(other);
 	expect((await finish(a, pending)).status).toBe(400);
@@ -197,8 +199,8 @@ it.each([
 	{ name: 'confirmed replacement revocation', status: 200, confirmed: true, tokens: ['refresh-a-replacement'] },
 	{ name: 'unconfirmed replacement revocation', status: 503, confirmed: false, tokens: ['refresh-a-replacement', 'refresh-a-replacement'] },
 ])('revokes the credentials cleared by disconnect after $name', async ({ status, confirmed, tokens }) => {
-	const a = await login(USER_A.id), b = await login(USER_B.id);
-	await connect(a); await connect(b, 'b');
+	const a = await login(USER_A.id);
+	await login(USER_B.id); await seedLegacyConnection(); await connect(a);
 	const other = await record(USER_B.id), replacement = address(await start(a));
 	vi.mocked(fetch).mockImplementation(async (input, init) => {
 		const response = await provider.fetch(input, init);
@@ -224,7 +226,7 @@ it.each([
 	finally { release.resolve(); }
 	const response = await pending;
 	expect(response.status).toBe(200);
-	expect(await response.json()).toEqual({ connected: false, accountLabel: 'a@example.test', model: null, models: [], revocationConfirmed: confirmed });
+	expect(await response.json()).toEqual({ connected: false, canManage: true, accountLabel: 'a@example.test', model: null, models: [], revocationConfirmed: confirmed });
 	expect(await record()).toMatchObject({ access_token: null, refresh_token: null, id_token: null });
 	expect(await record(USER_B.id)).toEqual(other);
 	const revocations = await Promise.all(provider.calls.filter(call => call.url.endsWith('/oauth/revoke')).map(async call => (await call.formData()).get('token')));
@@ -274,12 +276,12 @@ async function decrypt(row: Record<string, string | number | null>, field: strin
 	return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.subarray(0, 12), additionalData: new TextEncoder().encode(`${USER_A.id}:${field}`) }, key, bytes.subarray(12)));
 }
 
-it('serializes renewal for one learner and saves the complete rotated token set', async () => {
-	const a = await login(USER_A.id), b = await login(USER_B.id);
-	await connect(a); await connect(b, 'b'); await expire();
+it('serializes shared owner renewal and saves the complete rotated token set', async () => {
+	const a = await login(USER_A.id);
+	await login(USER_B.id); await seedLegacyConnection(); await connect(a); await expire();
 	await request('/api/ai/connection', { method: 'PATCH', cookie: a, body: { model: 'a-second' } });
 	const beforeA = (await record())!, beforeB = await record(USER_B.id);
-	const results = await Promise.all([accessToken(env, USER_A.id), accessToken(env, USER_A.id)]);
+	const results = await Promise.all([accessToken(env), accessToken(env)]);
 	expect(results).toEqual([{ access: 'access-a-renewed', version: 2, model: 'a-second' }, { access: 'access-a-renewed', version: 2, model: 'a-second' }]);
 	expect(provider.refreshTokens).toEqual(['refresh-a']);
 	expect(await record(USER_B.id)).toEqual(beforeB);
@@ -292,7 +294,7 @@ it('serializes renewal for one learner and saves the complete rotated token set'
 	expect(after.refresh_after).toBeGreaterThan(Date.now());
 	const call = provider.calls.filter(call => call.url.endsWith('/oauth/token')).at(-1)!;
 	expect(Object.fromEntries(await call.formData())).toEqual({ grant_type: 'refresh_token', client_id: 'oaiapp_a', refresh_token: 'refresh-a', resource: 'https://api.openai.com/v1' });
-	expect(await accessToken(env, USER_A.id, 1)).toEqual(results[0]);
+	expect(await accessToken(env, 1)).toEqual(results[0]);
 	expect(provider.refreshTokens).toHaveLength(1);
 });
 
@@ -304,8 +306,8 @@ it.each([
 	await connect(await login(USER_A.id));
 	await env.DB.prepare('UPDATE ai_connections SET expires_at=? WHERE user_id=?').bind(Date.now() + expiresIn, USER_A.id).run();
 	const before = await record();
-	if (error) await expect(accessToken(env, USER_A.id, stale)).rejects.toMatchObject({ status: 503, code: 'ai_unavailable' });
-	else expect(await accessToken(env, USER_A.id)).toEqual({ access: 'access-a', version: 1, model: 'a-first' });
+	if (error) await expect(accessToken(env, stale)).rejects.toMatchObject({ status: 503, code: 'ai_unavailable' });
+	else expect(await accessToken(env)).toEqual({ access: 'access-a', version: 1, model: 'a-first' });
 	expect(provider.refreshTokens).toHaveLength(0);
 	expect(await record()).toEqual(before);
 });
@@ -320,11 +322,11 @@ it.each([
 	{ name: 'null scope', status: 200, body: { scope: null }, cleared: false },
 	{ name: 'invalid expiry', status: 200, body: { expires_in: -1 }, cleared: false },
 	{ name: 'invalid refresh time', status: 200, body: { earliest_refresh_at: 'invalid' }, cleared: false },
-])('handles $name without changing the other learner connection', async ({ status, body, cleared }) => {
-	await connect(await login(USER_A.id)); await connect(await login(USER_B.id), 'b'); await expire();
+])('handles $name without changing the legacy learner connection', async ({ status, body, cleared }) => {
+	await connect(await login(USER_A.id)); await login(USER_B.id); await seedLegacyConnection(); await expire();
 	const beforeA = await record(), beforeB = await record(USER_B.id);
 	provider.refreshStatus = status; provider.refreshBody = body;
-	await expect(accessToken(env, USER_A.id)).rejects.toMatchObject(cleared ? { status: 409, code: 'ai_disconnected' } : { status: status === 200 ? 503 : status });
+	await expect(accessToken(env)).rejects.toMatchObject(cleared ? { status: 409, code: 'ai_disconnected' } : { status: status === 200 ? 503 : status });
 	expect(await record(USER_B.id)).toEqual(beforeB);
 	if (cleared) expect(await record()).toMatchObject({ access_token: null, refresh_token: null, id_token: null, model: null, client_id: 'oaiapp_a', version: 2, refresh_lease_until: null });
 	else expect(await record()).toEqual(beforeA);
@@ -347,7 +349,7 @@ it.each([
 		}
 		return provider.fetch(input, init);
 	});
-	const pending = accessToken(env, USER_A.id);
+	const pending = accessToken(env);
 	const result = action === 'disconnect' ? expect(pending).rejects.toMatchObject({ status: 409, code: 'ai_disconnected' }) : expect(pending).resolves.toMatchObject({ access: action === 'reconnect' ? 'access-a' : 'access-a-renewed', version: 2 });
 	await entered.promise;
 	try {
@@ -364,20 +366,20 @@ it('bounds the wait for another Worker lease and recovers an expired lease', asy
 	await env.DB.prepare('UPDATE ai_connections SET refresh_lease_until=? WHERE user_id=?').bind(Date.now() + 60_000, USER_A.id).run();
 	const before = await record();
 	const wait = vi.spyOn(scheduler, 'wait').mockResolvedValue(undefined);
-	await expect(accessToken(env, USER_A.id)).rejects.toMatchObject({ status: 503, code: 'ai_unavailable' });
+	await expect(accessToken(env)).rejects.toMatchObject({ status: 503, code: 'ai_unavailable' });
 	expect(provider.refreshTokens).toHaveLength(0);
 	expect(wait.mock.calls.length).toBeGreaterThan(0);
 	expect(wait.mock.calls.length).toBeLessThanOrEqual(25);
 	expect(await record()).toEqual(before);
 	await env.DB.prepare('UPDATE ai_connections SET refresh_lease_until=? WHERE user_id=?').bind(Date.now() - 1, USER_A.id).run();
-	expect(await accessToken(env, USER_A.id)).toMatchObject({ access: 'access-a-renewed', version: 2 });
+	expect(await accessToken(env)).toMatchObject({ access: 'access-a-renewed', version: 2 });
 });
 
 it('retains optional ID and scope values and parses a replacement refresh time', async () => {
 	await connect(await login(USER_A.id)); await expire();
 	const before = (await record())!;
 	provider.refreshBody = { id_token: undefined, scope: undefined, earliest_refresh_at: '2099-01-01T00:00:00Z' };
-	expect(await accessToken(env, USER_A.id)).toMatchObject({ access: 'access-a-renewed' });
+	expect(await accessToken(env)).toMatchObject({ access: 'access-a-renewed' });
 	expect(await record()).toMatchObject({ id_token: before.id_token, scopes: SCOPE, refresh_after: 4_070_908_800_000 });
 });
 
@@ -389,6 +391,6 @@ it.each([
 	await connect(await login(USER_A.id)); await expire();
 	const before = await record();
 	provider.claims = claims;
-	await expect(accessToken(env, USER_A.id)).rejects.toMatchObject({ status: 503 });
+	await expect(accessToken(env)).rejects.toMatchObject({ status: 503 });
 	expect(await record()).toEqual(before);
 });
