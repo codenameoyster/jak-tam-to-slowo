@@ -17,10 +17,6 @@ database_name = "jak-tam-to-slowo"
 database_id = "3e8c178e-be58-462c-bf9c-0e76543c9429"
 migrations_dir = "migrations"
 
-[ai]
-binding = "AI"
-remote = true
-
 [[ratelimits]]
 name = "LOGIN_LIMITER"
 namespace_id = "1002"
@@ -43,7 +39,7 @@ port = 8787
 local_protocol = "http"
 
 [secrets]
-required = ["ACCOUNTS", "AI_TOKEN_KEY"]
+required = ["ACCOUNTS", "AI_TOKEN_KEY", "OPENAI_TRANSCRIPTION_API_KEY"]
 
 [observability]
 enabled = true

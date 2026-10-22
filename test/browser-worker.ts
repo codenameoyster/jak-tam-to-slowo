@@ -1,11 +1,19 @@
 import worker, { type Env } from '../src/index';
-import { ONION_DRAFT, WORD_DRAFT } from './fixtures';
+import { ONION_DRAFT, testBindings, WORD_DRAFT } from './fixtures';
 import { createOpenAI, responseStream } from './openai';
 
 let provider: ReturnType<typeof createOpenAI> | undefined;
 globalThis.fetch = async (input, init) => {
 	const upstream = await (provider ??= createOpenAI());
 	upstream.revokeStatus = 503;
+	upstream.transcriptions = async request => {
+		const body = await request.formData(), file = body.get('file'), language = body.get('languages[]');
+		if (request.headers.get('Authorization') !== `Bearer ${testBindings.OPENAI_TRANSCRIPTION_API_KEY}` || request.method !== 'POST' || request.redirect !== 'manual'
+			|| [...body.keys()].sort().join(',') !== 'file,languages[],model' || body.get('model') !== 'gpt-transcribe' || (language !== 'pl' && language !== 'ru')
+			|| !(file instanceof File) || file.name !== (file.type.startsWith('audio/mp4') ? 'recording.m4a' : 'recording.webm')
+			|| [...new Uint8Array(await file.arrayBuffer())].join(',') !== '0,1,254,255') throw new Error('Unexpected test transcription input.');
+		return Response.json({ text: language === 'pl' ? ' słowo ' : ' слово ', languages: [{ code: language }] });
+	};
 	upstream.responses = async request => {
 		const body = await request.json<{ input: { content: string }[] }>();
 		const input = JSON.parse(body.input[0].content);
@@ -20,14 +28,7 @@ globalThis.fetch = async (input, init) => {
 
 export default {
 	async fetch(request: Request, env: Env) {
-		const AI = new Proxy(env.AI, { get(target, key) {
-			if (key === 'run') return async (model: string, input: { audio: string; language: string; task: string; vad_filter: boolean }) => {
-				if (model !== '@cf/openai/whisper-large-v3-turbo' || input.audio !== 'AAH+/w==' || input.task !== 'transcribe' || !input.vad_filter) throw new Error('Unexpected test transcription input.');
-				return { text: input.language === 'pl' ? ' słowo ' : ' слово ' };
-			};
-			return Reflect.get(target, key);
-		} });
-		const response = await worker.fetch(request, { ...env, AI });
+		const response = await worker.fetch(request, env);
 		response.headers.set('X-Test-Provider-Calls', String(provider ? (await provider).calls.length : 0));
 		return response;
 	},

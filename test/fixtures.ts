@@ -19,6 +19,7 @@ export const testAccountSecret = JSON.stringify([USER_A, USER_B].map(({ password
 export const testBindings = {
 	ACCOUNTS: testAccountSecret,
 	AI_TOKEN_KEY: btoa('t'.repeat(32)),
+	OPENAI_TRANSCRIPTION_API_KEY: 'test-transcription-key',
 	CHATGPT_HOST_ID: 'test-host',
 	CHATGPT_OWNER_ID: USER_A.id,
 };

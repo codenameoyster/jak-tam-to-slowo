@@ -19,6 +19,7 @@ export async function createOpenAI() {
 		badSignature: false, scope: SCOPE, tokenStatus: 200, modelsStatus: 200, emptyModels: false, revokeStatus: 200,
 		refreshStatus: 200, refreshBody: {} as Record<string, unknown>, refreshTokens: [] as string[],
 		responses: null as ((request: Request) => Response | Promise<Response>) | null,
+		transcriptions: null as ((request: Request) => Response | Promise<Response>) | null,
 		calls: [] as Request[],
 		fetch: async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
 			const request = new Request(input, init);
@@ -51,6 +52,7 @@ export async function createOpenAI() {
 			}
 			if (url === 'https://auth.openai.com/api/accounts/oauth/revoke') return new Response(null, { status: provider.revokeStatus });
 			if (url === 'https://api.openai.com/v1/responses' && provider.responses) return provider.responses(request);
+			if (url === 'https://api.openai.com/v1/audio/transcriptions' && provider.transcriptions) return provider.transcriptions(request);
 			throw new Error('Unexpected provider request.');
 		},
 	};

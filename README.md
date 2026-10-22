@@ -37,9 +37,9 @@ bunx wrangler d1 migrations apply DB --local
 bun run dev --var "CHATGPT_HOST_ID:$(cat .local/host-id.txt)" --var "CHATGPT_OWNER_ID:$(cat .local/owner-id.txt)"
 ```
 
-Open `http://127.0.0.1:8787`. The `dev` command uses local D1 and disables remote Cloudflare bindings. The development cookie works only on loopback HTTP with `LOCAL_HTTP=1`. Production uses a secure, host-only, HttpOnly cookie. Sessions expire after seven days. Local Cloudflare mode does not fake OpenAI requests. The automated tests supply controlled OpenAI and Workers AI responses.
+Open `http://127.0.0.1:8787`. The `dev` command uses local D1 and disables remote Cloudflare bindings. The development cookie works only on loopback HTTP with `LOCAL_HTTP=1`. Production uses a secure, host-only, HttpOnly cookie. Sessions expire after seven days. Local Cloudflare mode does not fake OpenAI requests. The automated tests supply controlled OpenAI responses.
 
-Keep `ACCOUNTS` and `AI_TOKEN_KEY` in `.dev.vars`. Wrangler loads only names in `secrets.required`. `.dev.vars` takes precedence over `.env`. `CHATGPT_HOST_ID` and `CHATGPT_OWNER_ID` are non-secret configuration. The command above selects the local host and the first generated learner as the local connection owner. For an existing local setup, set `CHATGPT_OWNER_ID` to that learner's existing stable ID. See [local secrets](https://developers.cloudflare.com/workers/configuration/secrets/#local-development-with-secrets).
+Keep `ACCOUNTS` and `AI_TOKEN_KEY` in `.dev.vars`. Add `OPENAI_TRANSCRIPTION_API_KEY` to this protected file to enable dictation. Use an OpenAI API key with audio transcription access. Keep its value on the server. Local dictation uses the same usage-based speech billing as production. Wrangler loads only names in `secrets.required`. `.dev.vars` takes precedence over `.env`. `CHATGPT_HOST_ID` and `CHATGPT_OWNER_ID` are non-secret configuration. The command above selects the local host and the first generated learner as the local connection owner. For an existing local setup, set `CHATGPT_OWNER_ID` to that learner's existing stable ID. See [local secrets](https://developers.cloudflare.com/workers/configuration/secrets/#local-development-with-secrets).
 
 ## Credentials
 
@@ -71,7 +71,9 @@ Text inference always selects the configured owner's existing encrypted row. Exi
 
 Use **Диктовать** to record a short word or expression. Allow microphone access. Stop the recording within 30 seconds. The app adds the transcript to your typed text and lets you edit it. Study uses the answer language. Add uses the selected input language. Cancel discards the clip. The complete upload must fit within 2 MiB.
 
-The server uses [`@cf/openai/whisper-large-v3-turbo`](https://developers.cloudflare.com/workers-ai/models/whisper-large-v3-turbo/) with `task: transcribe`, `pl` or `ru`, and voice activity detection. It keeps audio only in request memory. Browser tests use controlled recordings. Actual iOS Safari and Android Chrome recording, permissions, encoding, and Cloudflare decoding still need device checks over HTTPS. These checks have not passed yet.
+The server sends one multipart request to [OpenAI file transcription](https://developers.openai.com/api/docs/guides/speech-to-text) with `model=gpt-transcribe` and `languages[]` set to the selected `pl` or `ru` language. The upload uses a generic filename. The request has a 30-second timeout. The app keeps audio only in request memory. Browser tests use controlled recordings. Actual iOS Safari and Android Chrome recording, permissions, encoding, and recognition still need device checks over HTTPS. These checks have not passed yet.
+
+Both learners use the server-only `OPENAI_TRANSCRIPTION_API_KEY` for speech. OpenAI bills speech separately from the shared ChatGPT subscription. The shared ChatGPT connection continues to generate cards and grade answers. A speech service error keeps the current text editable and keeps the application session active.
 
 ## Release checks
 
@@ -95,7 +97,7 @@ bunx wrangler deploy --dry-run --outdir .wrangler/dry-run
 
 Browser tests run Chromium, Firefox, WebKit, and a Chromium mobile viewport. The two-learner workflow runs on mobile and desktop Chromium. It checks shared inference, requester-owned cards and progress, failed semantic checks, exact answers, lost-response retries, owner disconnect, and archiving. Settings checks cover shared status and owner-only controls. API navigation tests check that `/api` and `/api/*` reach the Worker rather than the SPA fallback. For container checks, use `mcr.microsoft.com/playwright:v1.64.1-noble` with `--init` so stopped Worker processes are reaped.
 
-Tests use fixed test accounts and a separate local D1 database. The test-only Worker supplies controlled OpenAI and Workers AI responses. Tests reset only `.wrangler/playwright/state`. Results, traces, and screenshots stay in `.wrangler/playwright/`. CI uses an Ubuntu host runner and needs no production credentials. CI performs no remote deployment or inference. A passing dry run checks packaging, not remote behavior.
+Tests use fixed test accounts, a fake transcription API key, and a separate local D1 database. The test-only Worker supplies controlled OpenAI responses. Tests reset only `.wrangler/playwright/state`. Results, traces, and screenshots stay in `.wrangler/playwright/`. CI uses an Ubuntu host runner and needs no production credentials. CI performs no remote deployment or inference. A passing dry run checks packaging, not remote behavior.
 
 After a binding change, run `bunx wrangler types src/worker-configuration.d.ts --env-interface Bindings --include-runtime false --strict-vars false`.
 
@@ -103,7 +105,7 @@ After a binding change, run `bunx wrangler types src/worker-configuration.d.ts -
 
 The approved account is **TheRustatian**, `d89bca31204306ee78e165e9f8ebd3be`. `wrangler.toml` configures Worker `jak-tam-to-slowo`, D1 `jak-tam-to-slowo` (`3e8c178e-be58-462c-bf9c-0e76543c9429`), and Custom Domain `learn.rustatian.me`. The dedicated database exists and has migrations `0001` through `0005`. The Worker is not yet published. The owner confirmed the existing Workers Paid plan. Billing entitlements and hostname conflicts still need a final check before publication.
 
-The initial usernames are `learner-1` and `learner-2`. Their generated passwords are in `.wrangler/production/credentials.txt`. Stable account IDs and password hashes are in `.wrangler/production/accounts.json`. `.wrangler/production/secrets.json` contains only `ACCOUNTS` and `AI_TOKEN_KEY`. `.wrangler/production/host-id.txt` is a backup of the non-secret host ID in `wrangler.toml`. The directory uses mode `0700`; each file uses `0600`. Preserve these files and put a protected copy in the owner's password manager. Secret values must stay out of source, assets, command arguments, CI, and logs.
+The initial usernames are `learner-1` and `learner-2`. Their generated passwords are in `.wrangler/production/credentials.txt`. Stable account IDs and password hashes are in `.wrangler/production/accounts.json`. `.wrangler/production/secrets.json` must contain `ACCOUNTS`, `AI_TOKEN_KEY`, and `OPENAI_TRANSCRIPTION_API_KEY`. Add the speech key to the existing protected file. Preserve the account credentials and encryption key. `.wrangler/production/host-id.txt` is a backup of the non-secret host ID in `wrangler.toml`. The directory uses mode `0700`; each file uses `0600`. Preserve these files and put a protected copy in the owner's password manager. Secret values must stay out of source, assets, command arguments, CI, and logs.
 
 Publication waits for task review, ponytail review, and final branch review. After those reviews, confirm the account and the absence of a conflicting hostname assignment. Read the installed Wrangler help before remote commands. Apply only this app's pending migrations, then deploy code and secrets together:
 
@@ -115,13 +117,13 @@ bunx wrangler deploy --secrets-file .wrangler/production/secrets.json
 
 The [secrets-file option](https://developers.cloudflare.com/workers/configuration/secrets/#upload-secrets-alongside-code) uploads secrets with the code. `secret put` and `secret bulk` can activate a deployment. Use the reviewed deployment command for the first publication. `workers_dev = false` and `preview_urls = false` keep alternate public URLs disabled. Cloudflare creates the DNS record and certificate for the [Custom Domain](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/). Do not replace a conflicting record or change another app.
 
-After publication, check HTTPS, both account logins, shared cards, independent progress, shared ChatGPT status, and owner-only management. Check Polish and Russian dictation on real phones when the existing allowance permits it. Record sanitized outcomes. Real owner consent, phone recording, hosted inference, and deployed usage remain open checks.
+After publication, check HTTPS, both account logins, shared cards, independent progress, shared ChatGPT status, and owner-only management. Check Polish and Russian dictation on real phones within the approved speech budget. Record sanitized outcomes. Real owner consent, phone recording, hosted inference, and deployed usage remain open checks.
 
 ### Account-wide allowances
 
-The existing Workers Paid allocation includes 10 million requests and 30 million CPU milliseconds per month. Static asset requests are free. D1 includes 25 billion rows read, 50 million rows written per month, and 5 GB of storage across the account. Workers AI includes 10,000 Neurons per day across the account. Whisper large v3 turbo uses 46.63 Neurons per audio minute. Other applications share these allowances. Excess usage on a paid account can incur charges.
+The existing Workers Paid allocation includes 10 million requests and 30 million CPU milliseconds per month. Static asset requests are free. D1 includes 25 billion rows read, 50 million rows written per month, and 5 GB of storage across the account. Other applications share these allowances. Excess usage on a paid account can incur charges. OpenAI speech uses separate usage-based billing. The published [`gpt-transcribe` price](https://developers.openai.com/api/docs/models/gpt-transcribe) is USD 0.0045 per audio minute.
 
-Check account usage in Workers & Pages, D1 Metrics, and Workers AI before live checks. This setup permits no purchases, credits, plan upgrades, paid add-ons, or paid inference checks. Stop if an operation requests a purchase. See current [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/), [D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/), and [Workers AI pricing](https://developers.cloudflare.com/workers-ai/platform/pricing/).
+Check account usage in Workers & Pages, D1 Metrics, and OpenAI before live checks. The owner approved usage-billed OpenAI speech. This setup permits no credit purchases, plan upgrades, or paid add-ons. Stop if an operation requests a purchase. See current [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/) and [D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/).
 
 ## Export and recovery
 
