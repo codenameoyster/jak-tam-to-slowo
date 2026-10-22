@@ -1,8 +1,8 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { Card, CardContent, CardPage, DraftResult, Language } from '../shared/types';
 import { api, ApiError } from './api';
 import { CardFields } from './CardFields';
-import { Dictation } from './Dictation';
+import { Dictation, dictatedValue } from './Dictation';
 
 interface Draft {
 	id: string;
@@ -25,6 +25,7 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy, onExpired }: { 
 	const [matches, setMatches] = useState<Card[]>([]);
 	const [searchError, setSearchError] = useState('');
 	const [dictationId, setDictationId] = useState(0);
+	const input = useRef<HTMLInputElement>(null);
 	const query = draft?.text.trim() ?? '';
 	const locked = busy || !!draft?.submission;
 
@@ -107,9 +108,9 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy, onExpired }: { 
 					<option value="pl">Польский</option><option value="ru">Русский</option>
 				</select>
 				<label htmlFor="draft-text">Слово или выражение</label>
-				<input id="draft-text" lang={draft?.language ?? 'pl'} value={draft?.text ?? ''} maxLength={200} required onChange={event => change({ text: event.target.value, meaningRu: undefined, choices: [], card: undefined })} />
+				<input ref={input} id="draft-text" lang={draft?.language ?? 'pl'} value={draft?.text ?? ''} maxLength={200} required onChange={event => change({ text: event.target.value, meaningRu: undefined, choices: [], card: undefined })} />
 			</fieldset>
-			<Dictation key={dictationId} language={draft?.language ?? 'pl'} disabled={locked} onExpired={onExpired} onText={text => change({ text: draft?.text ? `${draft.text} ${text}` : text, meaningRu: undefined, choices: [], card: undefined })} />
+			<Dictation key={dictationId} language={draft?.language ?? 'pl'} disabled={locked} onExpired={onExpired} onText={text => { if (input.current) change({ text: dictatedValue(input.current, text), meaningRu: undefined, choices: [], card: undefined }); }} />
 			<button disabled={locked || !query}>Подготовить карточку</button>
 		</form>
 		{searchError && <p className="hint" role="status">{searchError}</p>}

@@ -69,7 +69,7 @@ Text inference always selects the configured owner's existing encrypted row. Exi
 
 ## Dictation
 
-Use **Диктовать** to record a short word or expression. Allow microphone access. Stop the recording within 30 seconds. The app adds the transcript to your typed text and lets you edit it. Study uses the answer language. Add uses the selected input language. Cancel discards the clip. The complete upload must fit within 2 MiB.
+Use **Диктовать** to record a short word or expression. Allow microphone access. Stop the recording within 30 seconds. The app replaces the text selected when the transcript arrives. If no text is selected, it adds the transcript after the current text. You can edit the result. Study uses the answer language. Add uses the selected input language. Cancel discards the clip. The complete upload must fit within 2 MiB.
 
 The server sends one multipart request to [OpenAI file transcription](https://developers.openai.com/api/docs/guides/speech-to-text) with `model=gpt-transcribe` and `languages[]` set to the selected `pl` or `ru` language. The upload uses a generic filename. The request has a 30-second timeout. The app keeps audio only in request memory. Browser tests use controlled recordings. Actual iOS Safari and Android Chrome recording, permissions, encoding, and recognition still need device checks over HTTPS. These checks have not passed yet.
 

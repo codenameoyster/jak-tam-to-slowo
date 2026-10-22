@@ -97,6 +97,43 @@ async function start(page: Page) {
 }
 
 for (const scenario of [
+	{ name: 'Add selected retry', screen: 'add', initial: 'Żyla', edited: null, start: 0, end: 4, transcript: 'źle', expected: 'źle' },
+	{ name: 'Study selected retry', screen: 'study', initial: 'Żyla', edited: null, start: 0, end: 4, transcript: 'źle', expected: 'źle' },
+	{ name: 'Add delayed partial selection', screen: 'add', initial: 'Żyla', edited: 'To Żyla słowo.', start: 3, end: 7, transcript: 'źle', expected: 'To źle słowo.' },
+	{ name: 'Study delayed partial selection', screen: 'study', initial: 'Żyla', edited: 'To Żyla słowo.', start: 3, end: 7, transcript: 'źle', expected: 'To źle słowo.' },
+	{ name: 'Add delayed collapsed selection', screen: 'add', initial: 'typed', edited: 'typed during transcription', start: 2, end: 2, transcript: 'słowo', expected: 'typed during transcription słowo' },
+	{ name: 'Study delayed collapsed selection', screen: 'study', initial: 'typed', edited: 'typed during transcription', start: 2, end: 2, transcript: 'słowo', expected: 'typed during transcription słowo' },
+]) test(`uses the current field for ${scenario.name} and submits the displayed text`, async ({ page }) => {
+	await media(page);
+	await page.route('**/api/dictation', route => route.fulfill({ json: { text: scenario.initial } }));
+	await page.goto('/');
+	if (scenario.screen === 'add') await page.getByRole('button', { name: 'Добавить', exact: true }).click();
+	const input = page.getByLabel(scenario.screen === 'add' ? 'Слово или выражение' : 'Ответ по-польски');
+	await start(page);
+	await page.getByRole('button', { name: 'Завершить запись', exact: true }).click();
+	await expect(input).toHaveValue(scenario.initial);
+	await input.selectText();
+	const received = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+	await page.route('**/api/dictation', async route => { received.resolve(); await release.promise; await route.fulfill({ json: { text: scenario.transcript } }); });
+	await start(page);
+	await page.getByRole('button', { name: 'Завершить запись', exact: true }).click();
+	await received.promise;
+	try {
+		await expect(input).toBeEnabled();
+		if (scenario.edited !== null) {
+			await input.fill(scenario.edited);
+			await input.evaluate((field, range) => (field as HTMLInputElement).setSelectionRange(range.start, range.end), scenario);
+		}
+	} finally { release.resolve(); }
+	await expect(input).toHaveValue(scenario.expected);
+	const submitted = page.waitForRequest(request => request.url().endsWith(scenario.screen === 'add' ? '/api/cards/draft' : '/api/reviews'));
+	await page.getByRole('button', { name: scenario.screen === 'add' ? 'Подготовить карточку' : 'Проверить', exact: true }).click();
+	expect((await submitted).postDataJSON()).toMatchObject(scenario.screen === 'add'
+		? { text: scenario.expected, language: 'pl' }
+		: { action: 'answer', answer: scenario.expected, direction: 'ru-pl' });
+});
+
+for (const scenario of [
 	{ name: 'Add Polish with WebM/Opus', screen: 'add', language: 'pl', type: 'audio/webm;codecs=opus', label: 'Слово или выражение', transcript: 'słowo' },
 	{ name: 'Add Russian with MP4/AAC', screen: 'add', language: 'ru', type: 'audio/mp4;codecs=mp4a.40.2', label: 'Слово или выражение', transcript: 'слово' },
 	{ name: 'Add with the MP4 default codec', screen: 'add', language: 'pl', type: 'audio/mp4', label: 'Слово или выражение', transcript: 'słowo' },
@@ -264,6 +301,7 @@ for (const scenario of [
 	if (scenario.screen === 'add') await page.getByRole('button', { name: 'Добавить', exact: true }).click();
 	const input = page.getByLabel(scenario.screen === 'add' ? 'Слово или выражение' : 'Ответ по-польски');
 	await input.fill('typed');
+	await input.selectText();
 	// Complete the old response even if cancellation aborts its fetch.
 	await page.evaluate(() => {
 		const fetch = window.fetch;

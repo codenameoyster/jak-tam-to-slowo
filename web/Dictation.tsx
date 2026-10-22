@@ -12,6 +12,12 @@ interface Recording {
 	timer?: ReturnType<typeof setTimeout>;
 }
 
+export function dictatedValue(field: HTMLInputElement, transcript: string): string {
+	const { value, selectionStart: start, selectionEnd: end } = field;
+	if (start !== null && end !== null && start < end) return value.slice(0, start) + transcript + value.slice(end);
+	return value ? `${value} ${transcript}` : transcript;
+}
+
 export function Dictation({ language, onText, disabled = false, onExpired }: {
 	language: Language; onText(text: string): void; disabled?: boolean; onExpired?(): void;
 }) {
