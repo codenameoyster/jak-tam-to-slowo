@@ -9,7 +9,7 @@ interface AudioTest {
 }
 declare global { interface Window { audioTest: AudioTest } }
 
-async function media(page: Page, options: { supported?: string[]; denied?: boolean; delayed?: boolean; constructorError?: boolean; startError?: boolean; size?: number } = {}) {
+async function media(page: Page, options: { supported?: string[]; denied?: boolean; delayed?: boolean; constructorError?: boolean; startError?: boolean; size?: number; bytes?: number[] } = {}) {
 	await page.addInitScript(options => {
 		const state: AudioTest = window.audioTest = { checked: [], selected: [], activeTracks: 0, stopCalls: 0, requests: 0, grant() {}, fail() {}, oversize() {} };
 		const fetch = window.fetch;
@@ -60,7 +60,7 @@ async function media(page: Page, options: { supported?: string[]; denied?: boole
 				this.state = 'inactive';
 				state.stopCalls++;
 				queueMicrotask(() => {
-					this.ondataavailable?.({ data: new Blob([options.size === undefined ? new Uint8Array([0, 1, 254, 255]) : new Uint8Array(options.size)], { type: this.mimeType }) });
+					this.ondataavailable?.({ data: new Blob([options.size === undefined ? new Uint8Array(options.bytes ?? [0, 1, 254, 255]) : new Uint8Array(options.size)], { type: this.mimeType }) });
 					this.onstop?.();
 				});
 			}
@@ -129,22 +129,25 @@ for (const scenario of [
 	const submitted = page.waitForRequest(request => request.url().endsWith(scenario.screen === 'add' ? '/api/cards/draft' : '/api/reviews'));
 	await page.getByRole('button', { name: scenario.screen === 'add' ? 'Подготовить карточку' : 'Проверить', exact: true }).click();
 	expect((await submitted).postDataJSON()).toMatchObject(scenario.screen === 'add'
-		? { text: scenario.expected, language: 'pl' }
+		? { text: scenario.expected, language: 'auto' }
 		: { action: 'answer', answer: scenario.expected, direction: 'ru-pl' });
 });
 
 for (const scenario of [
-	{ name: 'Add Polish with WebM/Opus', screen: 'add', language: 'pl', type: 'audio/webm;codecs=opus', label: 'Слово или выражение', transcript: 'słowo' },
-	{ name: 'Add Russian with MP4/AAC', screen: 'add', language: 'ru', type: 'audio/mp4;codecs=mp4a.40.2', label: 'Слово или выражение', transcript: 'слово' },
-	{ name: 'Add with the MP4 default codec', screen: 'add', language: 'pl', type: 'audio/mp4', label: 'Слово или выражение', transcript: 'słowo' },
-	{ name: 'Study Russian target independent of Add', screen: 'study', language: 'ru', type: 'audio/webm;codecs=opus', label: 'Ответ по-русски', transcript: 'слово' },
-]) test(`inserts editable text for ${scenario.name} and sends only the selected language and clip`, async ({ page }) => {
-	await media(page, { supported: [scenario.type] });
+	{ name: 'Add Polish with WebM/Opus', screen: 'add', language: 'auto', legacy: null, bytes: [0, 1, 254, 255], type: 'audio/webm;codecs=opus', label: 'Слово или выражение', transcript: 'słowo' },
+	{ name: 'Add Russian with MP4/AAC', screen: 'add', language: 'auto', legacy: null, bytes: [1, 2, 253, 254], type: 'audio/mp4;codecs=mp4a.40.2', label: 'Слово или выражение', transcript: 'слово' },
+	{ name: 'Add with the MP4 default codec', screen: 'add', language: 'auto', legacy: null, bytes: [0, 1, 254, 255], type: 'audio/mp4', label: 'Слово или выражение', transcript: 'słowo' },
+	{ name: 'Add Russian with a restored Polish draft', screen: 'add', language: 'auto', legacy: 'pl', bytes: [1, 2, 253, 254], type: 'audio/webm;codecs=opus', label: 'Слово или выражение', transcript: 'слово' },
+	{ name: 'Add Polish with a restored Russian draft', screen: 'add', language: 'auto', legacy: 'ru', bytes: [0, 1, 254, 255], type: 'audio/mp4', label: 'Слово или выражение', transcript: 'słowo' },
+	{ name: 'Study Polish target', screen: 'study', language: 'pl', legacy: null, bytes: [0, 1, 254, 255], type: 'audio/webm;codecs=opus', label: 'Ответ по-польски', transcript: 'słowo' },
+	{ name: 'Study Russian target independent of Add', screen: 'study', language: 'ru', legacy: null, bytes: [0, 1, 254, 255], type: 'audio/webm;codecs=opus', label: 'Ответ по-русски', transcript: 'слово' },
+]) test(`inserts editable text for ${scenario.name} and sends only the language mode and clip`, async ({ page }) => {
+	await media(page, { supported: [scenario.type], bytes: scenario.bytes });
 	await page.goto('/');
 	if (scenario.screen === 'add') {
+		if (scenario.legacy) await page.evaluate(({ key, language }) => sessionStorage.setItem(key, JSON.stringify({ id: crypto.randomUUID(), text: 'restored', language, choices: [] })), { key: `card-draft:${USER_A.id}`, language: scenario.legacy });
 		await page.getByRole('button', { name: 'Добавить', exact: true }).click();
-		await page.getByLabel('Язык ввода').selectOption(scenario.language);
-	} else await page.getByLabel('PL -> RU', { exact: true }).click();
+	} else if (scenario.language === 'ru') await page.getByLabel('PL -> RU', { exact: true }).click();
 	const input = page.getByLabel(scenario.label);
 	await input.fill('typed');
 	await start(page);
@@ -152,19 +155,20 @@ for (const scenario of [
 	const uploaded = page.waitForResponse(response => response.url().endsWith('/api/dictation'));
 	await page.getByRole('button', { name: 'Завершить запись', exact: true }).click();
 	const response = await uploaded;
+	expect(await page.evaluate(() => window.audioTest.upload)).toEqual({ fields: ['clip', 'language'], language: scenario.language, type: scenario.type, bytes: scenario.bytes });
 	expect(response.status()).toBe(200);
-	expect(await page.evaluate(() => window.audioTest.upload)).toEqual({ fields: ['clip', 'language'], language: scenario.language, type: scenario.type, bytes: [0, 1, 254, 255] });
 	await expect(input).toHaveValue(`typed while recording ${scenario.transcript}`);
 	await expect(input).toBeEnabled();
 	await input.fill(`${scenario.transcript} edited`);
 	expect(await page.evaluate(() => ({ selected: window.audioTest.selected, activeTracks: window.audioTest.activeTracks }))).toEqual({ selected: [scenario.type], activeTracks: 0 });
 	if (scenario.screen === 'add') {
+		await expect(page.getByLabel('Язык ввода')).toHaveCount(0);
 		const generated = page.waitForRequest(request => request.url().endsWith('/api/cards/draft'));
 		await page.getByRole('button', { name: 'Подготовить карточку', exact: true }).click();
 		expect((await generated).postDataJSON()).toMatchObject({ text: `${scenario.transcript} edited`, language: scenario.language });
 	} else {
 		await page.getByRole('button', { name: 'Добавить', exact: true }).click();
-		await expect(page.getByLabel('Язык ввода')).toHaveValue('pl');
+		await expect(page.getByLabel('Язык ввода')).toHaveCount(0);
 	}
 });
 
@@ -224,7 +228,7 @@ test('keeps an overlong dictated Study answer editable across reload until it is
 for (const scenario of [
 	{ name: 'cancel', change: 'cancel' },
 	{ name: 'tab unmount', change: 'tab' },
-	{ name: 'Add input language change', change: 'language' },
+	{ name: 'Study direction change', change: 'direction' },
 	{ name: 'draft removal', change: 'discard' },
 	{ name: 'page hidden', change: 'hidden' },
 	{ name: 'page exit', change: 'pagehide' },
@@ -232,14 +236,14 @@ for (const scenario of [
 ]) test(`releases recording tracks on ${scenario.name} without uploading`, async ({ page }) => {
 	await media(page);
 	await page.goto('/');
-	await page.getByRole('button', { name: 'Добавить', exact: true }).click();
-	await page.getByLabel('Слово или выражение').fill('typed');
+	if (scenario.change !== 'direction') await page.getByRole('button', { name: 'Добавить', exact: true }).click();
+	await page.getByLabel(scenario.change === 'direction' ? 'Ответ по-польски' : 'Слово или выражение').fill('typed');
 	let uploads = 0;
 	page.on('request', request => { if (request.url().endsWith('/api/dictation')) uploads++; });
 	await start(page);
 	if (scenario.change === 'cancel') await page.getByRole('button', { name: 'Отменить диктовку', exact: true }).click();
 	if (scenario.change === 'tab') await page.getByRole('button', { name: 'Учить', exact: true }).click();
-	if (scenario.change === 'language') await page.getByLabel('Язык ввода').selectOption('ru');
+	if (scenario.change === 'direction') { page.once('dialog', dialog => dialog.accept()); await page.getByLabel('PL -> RU', { exact: true }).click(); }
 	if (scenario.change === 'discard') await page.getByRole('button', { name: 'Удалить черновик', exact: true }).click();
 	if (scenario.change === 'hidden') await page.evaluate(() => { Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' }); document.dispatchEvent(new Event('visibilitychange')); });
 	if (scenario.change === 'pagehide') await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
@@ -248,14 +252,13 @@ for (const scenario of [
 	expect(uploads).toBe(0);
 });
 
-test('releases permission granted after a language change and does not start an old recording', async ({ page }) => {
+test('releases permission granted after a Study direction change and does not start an old recording', async ({ page }) => {
 	await media(page, { delayed: true });
 	await page.goto('/');
-	await page.getByRole('button', { name: 'Добавить', exact: true }).click();
 	await expect(page.getByRole('button', { name: 'Диктовать', exact: true })).toBeVisible();
 	await page.getByRole('button', { name: 'Диктовать', exact: true }).click();
 	await expect(page.getByRole('button', { name: 'Диктовать', exact: true })).toBeDisabled();
-	await page.getByLabel('Язык ввода').selectOption('ru');
+	await page.getByLabel('PL -> RU', { exact: true }).click();
 	await page.evaluate(() => window.audioTest.grant());
 	expect(await page.evaluate(() => ({ tracks: window.audioTest.activeTracks, selected: window.audioTest.selected, requests: window.audioTest.requests }))).toEqual({ tracks: 0, selected: [], requests: 1 });
 	await expect(page.getByRole('button', { name: 'Диктовать', exact: true })).toBeEnabled();
@@ -289,7 +292,6 @@ for (const scenario of [
 });
 
 for (const scenario of [
-	{ name: 'Add language changes', screen: 'add', change: 'language' },
 	{ name: 'Add draft is removed', screen: 'add', change: 'discard' },
 	{ name: 'Add generation locks and unlocks the input', screen: 'add', change: 'generate' },
 	{ name: 'Study direction changes', screen: 'study', change: 'direction' },
@@ -313,7 +315,6 @@ for (const scenario of [
 	await page.getByRole('button', { name: 'Завершить запись', exact: true }).click();
 	await received.promise;
 	try {
-		if (scenario.change === 'language') await page.getByLabel('Язык ввода').selectOption('ru');
 		if (scenario.change === 'discard') await page.getByRole('button', { name: 'Удалить черновик', exact: true }).click();
 		if (scenario.change === 'generate') {
 			await page.route('**/api/cards/draft', route => route.fulfill({ status: 503, json: { error: 'Повторите запрос.', code: 'ai_interrupted' } }));

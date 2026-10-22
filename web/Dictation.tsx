@@ -1,6 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import { DICTATION_MAX_BYTES, DICTATION_TYPES } from '../shared/dictation';
-import type { Language } from '../shared/types';
+import { DICTATION_MAX_BYTES, DICTATION_TYPES, type DictationLanguage } from '../shared/dictation';
 import { api, ApiError } from './api';
 
 interface Recording {
@@ -19,7 +18,7 @@ export function dictatedValue(field: HTMLInputElement, transcript: string): stri
 }
 
 export function Dictation({ language, onText, disabled = false, onExpired }: {
-	language: Language; onText(text: string): void; disabled?: boolean; onExpired?(): void;
+	language: DictationLanguage; onText(text: string): void; disabled?: boolean; onExpired?(): void;
 }) {
 	const active = useRef<Recording | null>(null);
 	const callbacks = useRef({ onText, onExpired });

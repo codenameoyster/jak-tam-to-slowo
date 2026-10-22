@@ -7,12 +7,15 @@ globalThis.fetch = async (input, init) => {
 	const upstream = await (provider ??= createOpenAI());
 	upstream.revokeStatus = 503;
 	upstream.transcriptions = async request => {
-		const body = await request.formData(), file = body.get('file'), language = body.get('languages[]');
+		const body = await request.formData(), file = body.get('file'), languages = body.getAll('languages[]').join(',');
+		const automatic = languages === 'pl,ru';
 		if (request.headers.get('Authorization') !== `Bearer ${testBindings.OPENAI_TRANSCRIPTION_API_KEY}` || request.method !== 'POST' || request.redirect !== 'manual'
-			|| [...body.keys()].sort().join(',') !== 'file,languages[],model' || body.get('model') !== 'gpt-transcribe' || (language !== 'pl' && language !== 'ru')
-			|| !(file instanceof File) || file.name !== (file.type.startsWith('audio/mp4') ? 'recording.m4a' : 'recording.webm')
-			|| [...new Uint8Array(await file.arrayBuffer())].join(',') !== '0,1,254,255') throw new Error('Unexpected test transcription input.');
-		return Response.json({ text: language === 'pl' ? ' słowo ' : ' слово ', languages: [{ code: language }] });
+			|| [...body.keys()].sort().join(',') !== (automatic ? 'file,languages[],languages[],model' : 'file,languages[],model')
+			|| body.get('model') !== 'gpt-transcribe' || (!automatic && languages !== 'pl' && languages !== 'ru')
+			|| !(file instanceof File) || file.name !== (file.type.startsWith('audio/mp4') ? 'recording.m4a' : 'recording.webm')) throw new Error('Unexpected test transcription input.');
+		const bytes = [...new Uint8Array(await file.arrayBuffer())].join(',');
+		if (bytes !== '0,1,254,255' && (!automatic || bytes !== '1,2,253,254')) throw new Error('Unexpected test audio bytes.');
+		return Response.json({ text: languages === 'ru' || bytes === '1,2,253,254' ? ' слово ' : ' słowo ', languages: [{ code: automatic ? 'pl' : languages }] });
 	};
 	upstream.responses = async request => {
 		const body = await request.json<{ input: { content: string }[] }>();

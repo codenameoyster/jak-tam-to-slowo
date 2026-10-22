@@ -25,13 +25,13 @@ export async function handleDictation(request: Request, env: Env): Promise<Respo
 	try { form = await new Response(new Blob(chunks), { headers: { 'Content-Type': contentType } }).formData(); }
 	catch { throw new HttpError(400, 'invalid_input', 'Не удалось прочитать запись. Повторите запись.'); }
 	const language = form.get('language'), clip = form.get('clip');
-	if ([...form.keys()].length !== 2 || (language !== 'pl' && language !== 'ru')) throw new HttpError(400, 'invalid_input', 'Выберите польский или русский язык.');
+	if ([...form.keys()].length !== 2 || (language !== 'auto' && language !== 'pl' && language !== 'ru')) throw new HttpError(400, 'invalid_input', 'Укажите язык: auto, pl или ru.');
 	if (!(clip instanceof File) || !clip.size || !DICTATION_TYPES.includes(clip.type.replace(/[\s"]/g, ''))) throw new HttpError(400, 'invalid_input', 'Отправьте непустую запись WebM/Opus или MP4/AAC.');
 	if (!env.OPENAI_TRANSCRIPTION_API_KEY) throw unavailable(configurationMessage);
 	const body = new FormData();
 	body.set('file', clip, clip.type.startsWith('audio/mp4') ? 'recording.m4a' : 'recording.webm');
 	body.set('model', 'gpt-transcribe');
-	body.set('languages[]', language);
+	for (const hint of language === 'auto' ? ['pl', 'ru'] : [language]) body.append('languages[]', hint);
 	const signal = AbortSignal.timeout(30_000);
 	try {
 		const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {

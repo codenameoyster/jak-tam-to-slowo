@@ -11,7 +11,7 @@ export async function handleDraft(request: Request, env: Env): Promise<Response>
 	const input = { text: text(data.text, 200).trim(), language: data.language,
 		...('meaningRu' in data ? { meaningRu: text(data.meaningRu, 200).trim() } : {}),
 	};
-	if (input.language !== 'pl' && input.language !== 'ru') throw new HttpError(400, 'invalid_input', 'Выберите польский или русский язык.');
+	if (input.language !== 'auto' && input.language !== 'pl' && input.language !== 'ru') throw new HttpError(400, 'invalid_input', 'Укажите язык: auto, pl или ru.');
 	const value = await requestAiJson(env, instructions, input);
 	let result: DraftResult;
 	try {

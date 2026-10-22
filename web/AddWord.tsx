@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import type { Card, CardContent, CardPage, DraftResult, Language } from '../shared/types';
+import type { Card, CardContent, CardPage, DraftResult } from '../shared/types';
 import { api, ApiError } from './api';
 import { CardFields } from './CardFields';
 import { Dictation, dictatedValue } from './Dictation';
@@ -7,7 +7,6 @@ import { Dictation, dictatedValue } from './Dictation';
 interface Draft {
 	id: string;
 	text: string;
-	language: Language;
 	meaningRu?: string;
 	choices: string[];
 	card?: CardContent;
@@ -51,7 +50,7 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy, onExpired }: { 
 	}, [query]);
 
 	function change(value: Partial<Draft>) {
-		setDraft(current => ({ ...(current ?? { id: crypto.randomUUID(), text: '', language: 'pl', choices: [] }), ...value }));
+		setDraft(current => ({ ...(current ?? { id: crypto.randomUUID(), text: '', choices: [] }), ...value }));
 		setError('');
 		setSaved(null);
 	}
@@ -63,7 +62,7 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy, onExpired }: { 
 		setSaved(null);
 		change({ meaningRu });
 		try {
-			const result = await api<DraftResult>('/cards/draft', { method: 'POST', body: JSON.stringify({ text: draft.text, language: draft.language, meaningRu }) });
+			const result = await api<DraftResult>('/cards/draft', { method: 'POST', body: JSON.stringify({ text: draft.text, language: 'auto', meaningRu }) });
 			change(result.kind === 'draft' ? { card: result.card, choices: [] } : { choices: result.choices, card: undefined });
 		} catch (error) {
 			if (error instanceof ApiError && error.code === 'unauthorized') onExpired();
@@ -100,17 +99,14 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy, onExpired }: { 
 
 	return <section className="card" aria-labelledby="add-title" aria-busy={busy}>
 		<h1 id="add-title">Добавить слово</h1>
+		<p className="intro">Введите или продиктуйте слово по-польски или по-русски.</p>
 		<p className="intro">Подготовьте карточку, проверьте текст и сохраните её в общей коллекции.</p>
 		<form onSubmit={event => { event.preventDefault(); void generate(); }}>
 			<fieldset disabled={locked}>
-				<label htmlFor="input-language">Язык ввода</label>
-				<select id="input-language" value={draft?.language ?? 'pl'} onChange={event => change({ language: event.target.value as Language, meaningRu: undefined, choices: [], card: undefined })}>
-					<option value="pl">Польский</option><option value="ru">Русский</option>
-				</select>
 				<label htmlFor="draft-text">Слово или выражение</label>
-				<input ref={input} id="draft-text" lang={draft?.language ?? 'pl'} value={draft?.text ?? ''} maxLength={200} required onChange={event => change({ text: event.target.value, meaningRu: undefined, choices: [], card: undefined })} />
+				<input ref={input} id="draft-text" value={draft?.text ?? ''} maxLength={200} required onChange={event => change({ text: event.target.value, meaningRu: undefined, choices: [], card: undefined })} />
 			</fieldset>
-			<Dictation key={dictationId} language={draft?.language ?? 'pl'} disabled={locked} onExpired={onExpired} onText={text => { if (input.current) change({ text: dictatedValue(input.current, text), meaningRu: undefined, choices: [], card: undefined }); }} />
+			<Dictation key={dictationId} language="auto" disabled={locked} onExpired={onExpired} onText={text => { if (input.current) change({ text: dictatedValue(input.current, text), meaningRu: undefined, choices: [], card: undefined }); }} />
 			<button disabled={locked || !query}>Подготовить карточку</button>
 		</form>
 		{searchError && <p className="hint" role="status">{searchError}</p>}

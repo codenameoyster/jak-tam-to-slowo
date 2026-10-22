@@ -4,7 +4,7 @@ A private Polish and Russian card-learning app for two learners. Cards and one o
 
 ## Learn words
 
-Use **Добавить** to prepare a card with the shared ChatGPT connection. Select one meaning when a word has several meanings. Edit the terms, examples, and accepted answers before you save. Use **Слова** to search, edit, or archive shared cards.
+Use **Добавить** to prepare a card with the shared ChatGPT connection. Type or dictate in Polish or Russian. The card request uses `language=auto`. ChatGPT infers the source language from the text in that request. Select one meaning when a word has several meanings. Edit the terms, examples, and accepted answers before you save. Use **Слова** to search, edit, or archive shared cards.
 
 Study starts with `RU -> PL`. The app saves your last direction. It keeps up to ten cards ready and refills the queue when three remain. **Проверить** and **Показать ответ** show the target term and both usage examples. Correct answers use intervals of 1, 3, 7, 14, 30, and 60 days. Almost correct answers return in 10 minutes. Other answers and Reveal return in 1 minute. Exact answers and Reveal work without ChatGPT.
 
@@ -71,9 +71,9 @@ Text inference always selects the configured owner's existing encrypted row. Exi
 
 ## Dictation
 
-Use **Диктовать** to record a short word or expression. Allow microphone access. Stop the recording within 30 seconds. The app replaces the text selected when the transcript arrives. If no text is selected, it adds the transcript after the current text. You can edit the result. Study uses the answer language. Add uses the selected input language. Cancel discards the clip. The complete upload must fit within 2 MiB.
+Use **Диктовать** to record a short word or expression. Allow microphone access. Stop the recording within 30 seconds. The app replaces the text selected when the transcript arrives. If no text is selected, it adds the transcript after the current text. You can edit the result. Study uses the answer language. Add accepts Polish or Russian without a language selector, including for restored drafts. Cancel discards the clip. The complete upload must fit within 2 MiB.
 
-The server sends one multipart request to [OpenAI file transcription](https://developers.openai.com/api/docs/guides/speech-to-text) with `model=gpt-transcribe` and `languages[]` set to the selected `pl` or `ru` language. The upload uses a generic filename. The request has a 30-second timeout. The app keeps audio only in request memory. Browser tests use controlled recordings. Actual iOS Safari and Android Chrome recording, permissions, encoding, and recognition still need device checks over HTTPS. These checks have not passed yet.
+The server sends one multipart request to [OpenAI file transcription](https://developers.openai.com/api/docs/guides/speech-to-text) with `model=gpt-transcribe`. Add sends `language=auto`, which sets repeated `languages[]` fields to `pl` and `ru`. Explicit `pl` or `ru` callers, including Study, send one language hint. The response contains only the transcript text. The upload uses a generic filename. The request has a 30-second timeout. The app keeps audio only in request memory. Browser tests use controlled recordings. Actual iOS Safari and Android Chrome recording, permissions, encoding, and recognition still need device checks over HTTPS. These checks have not passed yet.
 
 Both learners use the server-only `OPENAI_TRANSCRIPTION_API_KEY` for speech. OpenAI bills speech separately from the shared ChatGPT subscription. The shared ChatGPT connection continues to generate cards and grade answers. A speech service error keeps the current text editable and keeps the application session active.
 

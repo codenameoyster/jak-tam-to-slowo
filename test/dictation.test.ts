@@ -49,15 +49,18 @@ async function expectFailure(response: Response, status: number, code: string, a
 }
 
 it.each([
-	{ name: 'Polish WebM/Opus for the owner', user: USER_A.id, language: 'pl', type: 'audio/webm;codecs=opus', filename: 'recording.webm', recognized: '  Słowo. \n', text: 'Słowo.' },
-	{ name: 'Russian MP4/AAC for the other learner', user: USER_B.id, language: 'ru', type: 'audio/mp4;codecs=mp4a.40.2', filename: 'recording.m4a', recognized: '  Слово. \n', text: 'Слово.' },
-	{ name: 'Russian MP4 browser default codec', user: USER_A.id, language: 'ru', type: 'audio/mp4', filename: 'recording.m4a', recognized: 'Слово.', text: 'Слово.' },
-	{ name: 'Polish WebM browser default codec', user: USER_B.id, language: 'pl', type: 'audio/webm', filename: 'recording.webm', recognized: 'Słowo.', text: 'Słowo.' },
-])('transcribes $name without an answer prompt or database writes', async ({ user, language, type, filename, recognized, text }) => {
+	{ name: 'Polish WebM/Opus for the owner', user: USER_A.id, language: 'pl', hints: ['pl'], detected: 'pl', type: 'audio/webm;codecs=opus', filename: 'recording.webm', recognized: '  Słowo. \n', text: 'Słowo.' },
+	{ name: 'Russian MP4/AAC for the other learner', user: USER_B.id, language: 'ru', hints: ['ru'], detected: 'ru', type: 'audio/mp4;codecs=mp4a.40.2', filename: 'recording.m4a', recognized: '  Слово. \n', text: 'Слово.' },
+	{ name: 'Russian MP4 browser default codec', user: USER_A.id, language: 'ru', hints: ['ru'], detected: 'ru', type: 'audio/mp4', filename: 'recording.m4a', recognized: 'Слово.', text: 'Слово.' },
+	{ name: 'Polish WebM browser default codec', user: USER_B.id, language: 'pl', hints: ['pl'], detected: 'pl', type: 'audio/webm', filename: 'recording.webm', recognized: 'Słowo.', text: 'Słowo.' },
+	{ name: 'automatic Polish WebM/Opus', user: USER_A.id, language: 'auto', hints: ['pl', 'ru'], detected: 'pl', type: 'audio/webm;codecs=opus', filename: 'recording.webm', recognized: '  Słowo. \n', text: 'Słowo.' },
+	{ name: 'automatic Russian MP4/AAC with incorrect language metadata', user: USER_B.id, language: 'auto', hints: ['pl', 'ru'], detected: 'pl', type: 'audio/mp4;codecs=mp4a.40.2', filename: 'recording.m4a', recognized: '  Слово. \n', text: 'Слово.' },
+])('transcribes $name without an answer prompt or database writes', async ({ user, language, hints, detected, type, filename, recognized, text }) => {
 	cookie = await login(user);
-	provider.transcriptions = () => Response.json({ text: recognized, languages: [{ code: language }] });
+	provider.transcriptions = () => Response.json({ text: recognized, languages: [{ code: detected }] });
 	const prepare = vi.spyOn(env.DB, 'prepare');
 	const response = await send(clip(language, type));
+	expect(response.status).toBe(200);
 	expect(provider.calls).toHaveLength(1);
 	const call = provider.calls[0];
 	expect(call.url).toBe('https://api.openai.com/v1/audio/transcriptions');
@@ -66,9 +69,9 @@ it.each([
 	expect(call.headers.get('Authorization')).toBe('Bearer test-transcription-key');
 	expect(call.headers.get('Content-Type')).toMatch(/^multipart\/form-data; boundary=/);
 	const form = await call.formData();
-	expect([...form.keys()].sort()).toEqual(['file', 'languages[]', 'model']);
+	expect([...form.keys()].sort()).toEqual(['file', ...hints.map(() => 'languages[]'), 'model']);
 	expect(form.get('model')).toBe('gpt-transcribe');
-	expect(form.getAll('languages[]')).toEqual([language]);
+	expect(form.getAll('languages[]')).toEqual(hints);
 	const file = form.get('file');
 	expect(file).toBeInstanceOf(File);
 	if (!(file instanceof File)) throw new Error('Missing audio file.');

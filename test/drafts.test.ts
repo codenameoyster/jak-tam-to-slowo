@@ -53,11 +53,16 @@ it.each([
 	{ name: 'Russian wish', input: { text: 'спокойной ночи', language: 'ru' }, card: { pl: 'Dobranoc', ru: 'Спокойной ночи', examplePl: 'Dobranoc, mamo!', exampleRu: 'Спокойной ночи, мама!', meaningRu: 'Пожелание перед сном', alternativesPl: [], alternativesRu: [] } },
 	{ name: 'selected bow meaning', input: { text: 'лук', language: 'ru', meaningRu: 'Оружие для стрельбы стрелами' }, card: { pl: 'Łuk', ru: 'Лук', examplePl: 'Strzelam z łuku.', exampleRu: 'Я стреляю из лука.', meaningRu: 'Оружие для стрельбы стрелами', alternativesPl: [], alternativesRu: [] } },
 	{ name: 'multiword term casing', input: { text: 'zielona herbata', language: 'pl' }, card: { pl: 'Zielona herbata', ru: 'Зелёный чай', examplePl: 'Piję zieloną herbatę.', exampleRu: 'Я пью зелёный чай.', meaningRu: 'Напиток', alternativesPl: [], alternativesRu: [] } },
+	{ name: 'automatic Polish input', input: { text: 'słowo', language: 'auto' }, card: WORD_DRAFT },
+	{ name: 'automatic Russian input', input: { text: 'слово', language: 'auto' }, card: WORD_DRAFT },
+	{ name: 'automatic selected meaning', input: { text: 'лук', language: 'auto', meaningRu: 'Овощ' }, card: ONION_DRAFT },
 ])('preserves the independent $name reference in a preview', async ({ input, card }) => {
 	provider.responses = () => responseStream({ kind: 'draft', card });
 	const response = await generate(input);
 	expect(response.status).toBe(200);
 	expect(await response.json()).toEqual({ kind: 'draft', card });
+	expect(calls()).toHaveLength(1);
+	expect(await calls()[0].json()).toMatchObject({ input: [{ role: 'user', content: JSON.stringify(input) }] });
 	expect(await env.DB.prepare('SELECT count(*) AS n FROM cards').first('n')).toBe(0);
 });
 
@@ -70,6 +75,9 @@ it.each([
 	{ name: 'empty selected meaning', body: { text: 'лук', language: 'ru', meaningRu: ' ' } },
 	{ name: 'oversized selected meaning', body: { text: 'лук', language: 'ru', meaningRu: 'я'.repeat(201) } },
 	{ name: 'client-selected account', body: { text: 'słowo', language: 'pl', userId: USER_B.id } },
+	{ name: 'empty automatic input', body: { text: ' ', language: 'auto' } },
+	{ name: 'empty automatic selected meaning', body: { text: 'лук', language: 'auto', meaningRu: ' ' } },
+	{ name: 'client-selected account with automatic input', body: { text: 'słowo', language: 'auto', userId: USER_B.id } },
 ])('rejects $name before inference', async ({ body }) => {
 	const response = await generate(body);
 	expect(response.status).toBe(400);
