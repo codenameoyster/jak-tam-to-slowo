@@ -106,7 +106,7 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy, onExpired }: { 
 				<label htmlFor="draft-text">Слово или выражение</label>
 				<input ref={input} id="draft-text" value={draft?.text ?? ''} maxLength={200} required onChange={event => change({ text: event.target.value, meaningRu: undefined, choices: [], card: undefined })} />
 			</fieldset>
-			<Dictation key={dictationId} language="auto" disabled={locked} onExpired={onExpired} onText={text => { if (input.current) change({ text: dictatedValue(input.current, text), meaningRu: undefined, choices: [], card: undefined }); }} />
+			{!draft?.card && <Dictation key={dictationId} language="auto" disabled={locked} onExpired={onExpired} onText={text => { if (input.current) change({ text: dictatedValue(input.current, text), meaningRu: undefined, choices: [], card: undefined }); }} />}
 			<button className="primary" disabled={locked || !query}>Подготовить карточку</button>
 		</form>
 		{searchError && <p className="hint" role="status">{searchError}</p>}

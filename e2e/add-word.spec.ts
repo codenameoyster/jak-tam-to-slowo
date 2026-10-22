@@ -291,6 +291,36 @@ test('keeps the preview editable and sends no create when recovery storage fails
 	expect((await (await page.request.get('/api/cards')).json()).cards).toEqual([]);
 });
 
+test('keeps an edited preview outside source dictation across reload and save', async ({ page }, testInfo) => {
+	await page.getByRole('button', { name: 'Добавить', exact: true }).click();
+	const source = page.getByLabel('Слово или выражение'), mic = page.getByRole('button', { name: 'Диктовать', exact: true });
+	await source.fill('słowo');
+	await expect(mic).toBeEnabled();
+	await page.getByRole('button', { name: 'Подготовить карточку', exact: true }).click();
+	const example = page.getByLabel('Пример по-польски');
+	await example.fill('To moje nowe słowo.');
+	await example.evaluate(field => field.scrollIntoView({ block: 'center' }));
+	const sourceRect = (await source.boundingBox())!;
+	expect(sourceRect.y + sourceRect.height).toBeLessThan(0);
+	await expect(mic).toHaveCount(0);
+	await expect(source).toHaveValue('słowo');
+	expect(await page.evaluate(key => JSON.parse(sessionStorage.getItem(key)!), `card-draft:${USER_A.id}`)).toMatchObject({ text: 'słowo', card: { ...WORD_DRAFT, examplePl: 'To moje nowe słowo.' } });
+	await page.screenshot({ path: `.wrangler/playwright/interface-${testInfo.project.name}-${page.viewportSize()!.width}-edited-preview.png`, animations: 'disabled', scale: 'css' });
+	await page.reload();
+	await page.getByRole('button', { name: 'Добавить', exact: true }).click();
+	await expect(example).toHaveValue('To moje nowe słowo.');
+	await expect(source).toHaveValue('słowo');
+	await expect(mic).toHaveCount(0);
+	const saved = page.waitForResponse(response => response.url().endsWith('/api/cards') && response.request().method() === 'POST');
+	await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
+	const response = await saved;
+	createdIds.push(response.request().postDataJSON().id);
+	expect(response.status()).toBe(201);
+	expect(response.request().postDataJSON()).toMatchObject({ ...WORD_DRAFT, examplePl: 'To moje nowe słowo.' });
+	await expect(source).toHaveValue('');
+	await expect(mic).toBeEnabled();
+});
+
 test('keeps the draft mounted until Save confirms and clears recovery data', async ({ page }) => {
 	await page.getByRole('button', { name: 'Добавить', exact: true }).click();
 	await page.getByLabel('Слово или выражение').fill('słowo');

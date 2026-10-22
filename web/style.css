@@ -84,7 +84,7 @@ form .error { margin: 0 0 16px; }
 .dictation-status button { min-height: 44px; padding: 8px 0; color: var(--accent); }
 .mic { display: grid; place-items: center; flex: 0 0 64px; width: 64px; height: 64px; padding: 0; border: 0; border-radius: 50%; background: var(--accent); color: #fff; box-shadow: 0 4px 16px #a8264c26; pointer-events: auto; }
 .mic svg { width: 28px; height: 28px; }
-.dictation[data-state='recording'] .mic { outline: 4px solid #a8264c26; outline-offset: 4px; }
+.dictation[data-state='recording'] .mic { box-shadow: 0 0 0 8px #a8264c26; }
 [data-keyboard='true'] .tabs { display: none; }
 [data-keyboard='true'] .dictation { bottom: calc(var(--keyboard-inset) + 12px); }
 .words-list { list-style: none; padding: 0; margin: 24px 0; }

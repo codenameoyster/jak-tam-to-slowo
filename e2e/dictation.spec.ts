@@ -472,19 +472,21 @@ test.describe('phone interface', () => {
 	});
 
 	for (const scenario of [
-		{ name: 'Add resize', screen: 'Добавить', label: 'Слово или выражение', width: 390, height: 420, offset: 0, event: 'resize' },
-		{ name: 'Study resize and scroll', screen: 'Учить', label: 'Ответ по-польски', width: 320, height: 390, offset: 48, event: 'scroll' },
+		{ name: 'Add resize', screen: 'Добавить', label: 'Слово или выражение', width: 390, layoutHeight: 844, initialHeight: 420, height: 420, offset: 0, event: 'resize' },
+		{ name: 'Study resize and scroll', screen: 'Учить', label: 'Ответ по-польски', width: 320, layoutHeight: 844, initialHeight: 420, height: 390, offset: 48, event: 'scroll' },
+		{ name: 'Add short keyboard', screen: 'Добавить', label: 'Слово или выражение', width: 390, layoutHeight: 390, initialHeight: 260, height: 200, offset: 0, event: 'resize' },
+		{ name: 'Study short keyboard with scroll', screen: 'Учить', label: 'Ответ по-польски', width: 844, layoutHeight: 390, initialHeight: 260, height: 200, offset: 24, event: 'scroll' },
 	]) test(`keeps the field, mic, status and cancel above the keyboard for ${scenario.name}`, async ({ page }, testInfo) => {
-		await page.setViewportSize({ width: scenario.width, height: 844 });
+		await page.setViewportSize({ width: scenario.width, height: scenario.layoutHeight });
 		await media(page, { delayed: true });
 		await page.goto('/');
 		await page.getByRole('button', { name: scenario.screen, exact: true }).tap();
 		const input = page.getByLabel(scenario.label), nav = page.getByRole('navigation', { name: 'Разделы' });
 		await input.tap();
-		await page.evaluate(() => {
-			Object.defineProperties(window.visualViewport!, { height: { configurable: true, value: 420 }, offsetTop: { configurable: true, value: 0 } });
+		await page.evaluate(height => {
+			Object.defineProperties(window.visualViewport!, { height: { configurable: true, value: height }, offsetTop: { configurable: true, value: 0 } });
 			window.visualViewport!.dispatchEvent(new Event('resize'));
-		});
+		}, scenario.initialHeight);
 		await expect(nav).toBeHidden();
 		await page.evaluate(scenario => {
 			Object.defineProperties(window.visualViewport!, { height: { configurable: true, value: scenario.height }, offsetTop: { configurable: true, value: scenario.offset } });
@@ -498,6 +500,7 @@ test.describe('phone interface', () => {
 			const field = (await input.boundingBox())!, controls = (await page.locator('.dictation').boundingBox())!;
 			expect(controls.y).toBeGreaterThanOrEqual(scenario.offset);
 			expect(field.y).toBeGreaterThanOrEqual(scenario.offset);
+			expect(field.y + field.height).toBeLessThanOrEqual(scenario.offset + scenario.height);
 			expect(field.y + field.height).toBeLessThanOrEqual(controls.y);
 			for (const control of await page.locator('.dictation button, .dictation [aria-live], .dictation [role="alert"]').all()) {
 				if (!await control.isVisible()) continue;
@@ -507,6 +510,8 @@ test.describe('phone interface', () => {
 			}
 		};
 		await geometry();
+		await page.evaluate(() => window.visualViewport!.dispatchEvent(new Event('resize')));
+		await geometry();
 		await page.getByRole('button', { name: 'Диктовать', exact: true }).tap();
 		await expect(page.getByText('Разрешите доступ к микрофону.', { exact: true })).toBeVisible();
 		await geometry();
@@ -514,7 +519,7 @@ test.describe('phone interface', () => {
 		await expect(page.getByRole('button', { name: 'Остановить запись', exact: true })).toBeVisible();
 		await geometry();
 		await targets(page);
-		await page.screenshot({ path: `.wrangler/playwright/interface-${testInfo.project.name}-${scenario.width}-keyboard-recording.png`, animations: 'disabled', scale: 'css' });
+		await page.screenshot({ path: `.wrangler/playwright/interface-${testInfo.project.name}-${scenario.width}-${scenario.layoutHeight}-keyboard-${scenario.height}-${scenario.offset}-recording.png`, animations: 'disabled', scale: 'css', clip: { x: 0, y: scenario.offset, width: scenario.width, height: scenario.height } });
 		const received = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
 		await page.route('**/api/dictation', async route => { received.resolve(); await release.promise; await route.fulfill({ json: { text: 'late' } }); });
 		await page.getByRole('button', { name: 'Остановить запись', exact: true }).tap();
@@ -526,18 +531,18 @@ test.describe('phone interface', () => {
 		} finally { release.resolve(); }
 		await expect(page.getByRole('button', { name: 'Диктовать', exact: true })).toBeEnabled();
 		await expect(input).toHaveValue('');
-		await page.evaluate(() => {
+		await page.evaluate(height => {
 			(document.activeElement as HTMLElement).blur();
-			Object.defineProperties(window.visualViewport!, { height: { configurable: true, value: 844 }, offsetTop: { configurable: true, value: 0 } });
+			Object.defineProperties(window.visualViewport!, { height: { configurable: true, value: height }, offsetTop: { configurable: true, value: 0 } });
 			window.visualViewport!.dispatchEvent(new Event('resize'));
-		});
+		}, scenario.layoutHeight);
 		await expect(nav).toBeVisible();
-		expect((await nav.boundingBox())!.y).toBeGreaterThan(720);
-		expect((await page.getByRole('button', { name: 'Диктовать', exact: true }).boundingBox())!.y).toBeGreaterThan(600);
-		await page.evaluate(() => {
-			Object.defineProperties(window.visualViewport!, { height: { configurable: true, value: 422 }, scale: { configurable: true, value: 2 } });
+		expect((await nav.boundingBox())!.y).toBeGreaterThan(scenario.layoutHeight - 124);
+		expect((await page.getByRole('button', { name: 'Диктовать', exact: true }).boundingBox())!.y).toBeGreaterThan(scenario.layoutHeight - 244);
+		await page.evaluate(height => {
+			Object.defineProperties(window.visualViewport!, { height: { configurable: true, value: height / 2 }, scale: { configurable: true, value: 2 } });
 			window.visualViewport!.dispatchEvent(new Event('resize'));
-		});
+		}, scenario.layoutHeight);
 		await expect(nav).toBeVisible();
 	});
 
@@ -548,6 +553,14 @@ test.describe('phone interface', () => {
 		await page.getByRole('button', { name: 'Диктовать', exact: true }).tap();
 		await expect(page.getByRole('button', { name: 'Остановить запись', exact: true })).toBeVisible();
 		await page.screenshot({ path: `.wrangler/playwright/interface-${testInfo.project.name}-390-recording.png`, animations: 'disabled', scale: 'css' });
+		const stop = page.getByRole('button', { name: 'Остановить запись', exact: true });
+		const unfocusedOutline = await stop.evaluate(button => getComputedStyle(button).outline);
+		await page.getByRole('button', { name: 'Отменить диктовку', exact: true }).focus();
+		await page.keyboard.press('Tab');
+		await expect(stop).toBeFocused();
+		expect(await stop.evaluate(button => button.matches(':focus-visible'))).toBe(true);
+		expect(await stop.evaluate(button => getComputedStyle(button).outline)).not.toBe(unfocusedOutline);
+		await page.screenshot({ path: `.wrangler/playwright/interface-${testInfo.project.name}-390-recording-focused-stop.png`, animations: 'disabled', scale: 'css' });
 		await page.getByRole('button', { name: 'Отменить диктовку', exact: true }).tap();
 		await expect(page.getByRole('button', { name: 'Диктовать', exact: true })).toBeEnabled();
 		expect(await page.evaluate(() => window.audioTest.activeTracks)).toBe(0);

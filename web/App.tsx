@@ -60,7 +60,8 @@ export function App() {
 				const field = document.activeElement;
 				if (!keyboard || !(field instanceof HTMLElement) || !field.matches('input, textarea, select')) return;
 				const rect = field.getBoundingClientRect();
-				const top = viewport!.offsetTop + 12, bottom = viewport!.offsetTop + viewport!.height - 180;
+				const top = viewport!.offsetTop + 12;
+				const bottom = Math.max(top + rect.height, viewport!.offsetTop + viewport!.height - 180);
 				if (rect.bottom > bottom) window.scrollBy(0, rect.bottom - bottom);
 				else if (rect.top < top) window.scrollBy(0, rect.top - top);
 			});
