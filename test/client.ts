@@ -2,9 +2,10 @@ import { env } from 'cloudflare:workers';
 import worker from '../src/index';
 import { USER_A, USER_B } from './fixtures';
 
-export function request(path: string, options: { method?: string; body?: unknown; cookie?: string; origin?: string } = {}): Promise<Response> {
+export function request(path: string, options: { method?: string; body?: unknown; cookie?: string; origin?: string; accountId?: string } = {}): Promise<Response> {
 	const headers = new Headers({ Origin: options.origin ?? 'https://learn.rustatian.me' });
 	if (options.cookie) headers.set('Cookie', options.cookie);
+	if (options.accountId !== undefined) headers.set('X-Account-ID', options.accountId);
 	if (options.body !== undefined) headers.set('Content-Type', 'application/json');
 	return worker.fetch(new Request(`https://learn.rustatian.me${path}`, {
 		method: options.method ?? 'GET', headers,

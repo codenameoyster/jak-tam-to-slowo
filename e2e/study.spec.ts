@@ -125,6 +125,24 @@ test('refills once at three unanswered cards, keeps the active card in the cap, 
 });
 
 for (const scenario of [
+	{ name: 'Check in RU -> PL', direction: 'ru-pl', action: 'Проверить', label: 'Ответ по-польски', answer: 'Dom', target: 'To nasz dom.' },
+	{ name: 'Reveal in RU -> PL', direction: 'ru-pl', action: 'Показать ответ', label: 'Ответ по-польски', answer: 'Dom', target: 'To nasz dom.' },
+	{ name: 'Check in PL -> RU', direction: 'pl-ru', action: 'Проверить', label: 'Ответ по-русски', answer: 'Дом', target: 'Это наш дом.' },
+	{ name: 'Reveal in PL -> RU', direction: 'pl-ru', action: 'Показать ответ', label: 'Ответ по-русски', answer: 'Дом', target: 'Это наш дом.' },
+]) test(`shows both usage examples after ${scenario.name}`, async ({ page }) => {
+	await seed(page);
+	await page.goto('/');
+	if (scenario.direction === 'pl-ru') await page.getByRole('button', { name: 'PL -> RU', exact: true }).click();
+	await expect(page.getByLabel(scenario.label)).toBeEnabled();
+	await expect(page.getByText(scenario.target, { exact: true })).toHaveCount(0);
+	if (scenario.action === 'Проверить') await page.getByLabel(scenario.label).fill(scenario.answer);
+	await page.getByRole('button', { name: scenario.action, exact: true }).click();
+	await expect(page.getByRole('button', { name: 'Дальше', exact: true })).toBeVisible();
+	await expect(page.getByText('To nasz dom.', { exact: true })).toBeVisible();
+	await expect(page.getByText('Это наш дом.', { exact: true })).toBeVisible();
+});
+
+for (const scenario of [
 	{ name: 'direction changes', change: 'direction' },
 	{ name: 'account changes', change: 'account' },
 ]) test(`ignores an old refill after ${scenario.name}`, async ({ page }) => {
@@ -252,7 +270,12 @@ for (const scenario of [
 	await expect(page.getByTestId('study-term')).toHaveText('Дом');
 });
 
-test('retries a stored review with its frozen envelope after reload and shows its result before advancing', async ({ page }, testInfo) => {
+for (const scenario of [
+	{ name: 'Check RU -> PL', direction: 'ru-pl', action: 'answer', label: 'Ответ по-польски', answer: '  DOM  ', correction: 'Dom', grade: 'Верно', stage: 1 },
+	{ name: 'Reveal RU -> PL', direction: 'ru-pl', action: 'reveal', label: 'Ответ по-польски', answer: '', correction: 'Dom', grade: 'Повторите', stage: 0 },
+	{ name: 'Check PL -> RU', direction: 'pl-ru', action: 'answer', label: 'Ответ по-русски', answer: '  ДОМ  ', correction: 'Дом', grade: 'Верно', stage: 1 },
+	{ name: 'Reveal PL -> RU', direction: 'pl-ru', action: 'reveal', label: 'Ответ по-русски', answer: '', correction: 'Дом', grade: 'Повторите', stage: 0 },
+]) test(`retries stored ${scenario.name} with its frozen envelope after reload and shows its original examples`, async ({ page }, testInfo) => {
 	const [card] = await seed(page);
 	const received = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
 	let original = '', stored: ReviewResult | undefined;
@@ -266,37 +289,46 @@ test('retries a stored review with its frozen envelope after reload and shows it
 		await route.abort();
 	});
 	await page.goto('/');
-	await page.getByLabel('Ответ по-польски').fill('  DOM  ');
-	await page.getByLabel('Ответ по-польски').press('Enter');
+	if (scenario.direction === 'pl-ru') await page.getByLabel('PL -> RU', { exact: true }).click();
+	await page.getByLabel(scenario.label).fill(scenario.answer);
+	if (scenario.action === 'answer') await page.getByLabel(scenario.label).press('Enter');
+	else await page.getByRole('button', { name: 'Показать ответ', exact: true }).click();
 	await received.promise;
 	try {
 		await expect(page.getByLabel('PL -> RU', { exact: true })).toBeDisabled();
 		await expect(page.getByRole('button', { name: 'Проверить', exact: true })).toBeDisabled();
 		await expect(page.getByRole('button', { name: 'Показать ответ', exact: true })).toBeDisabled();
-		await expect(page.getByLabel('Ответ по-польски')).toBeDisabled();
+		await expect(page.getByLabel(scenario.label)).toBeDisabled();
 		await expect(page.getByRole('button', { name: 'Дальше', exact: true })).toHaveCount(0);
 		expect(await page.evaluate(key => JSON.parse(sessionStorage.getItem(key)!).pending, `study-draft:${USER_A.id}`)).toBe(original);
+		expect(JSON.parse(original)).toEqual({ attemptId: expect.any(String), cardId: card.id, cardVersion: 1, progressVersion: 0, direction: scenario.direction,
+			...(scenario.action === 'answer' ? { action: 'answer', answer: scenario.answer } : { action: 'reveal' }) });
 	} finally { release.resolve(); }
 	await expect(page.getByRole('alert')).toContainText('не подтверждено');
-	await expect(page.getByLabel('Ответ по-польски')).toHaveValue('  DOM  ');
-	expect(((await (await page.request.get('/api/study?direction=ru-pl')).json()) as StudyBatch).cards).toEqual([]);
+	await expect(page.getByLabel(scenario.label)).toHaveValue(scenario.answer);
+	expect(((await (await page.request.get(`/api/study?direction=${scenario.direction}`)).json()) as StudyBatch).cards).toEqual([]);
+	expect((await page.request.patch(`/api/cards/${card.id}`, { headers, data: { ...CARD_B, id: undefined, version: 1, examplePl: 'To inny dom.', exampleRu: 'Это другой дом.' } })).status()).toBe(200);
 	await page.unroute('**/api/reviews');
 	await page.reload();
-	await expect(page.getByLabel('Ответ по-польски')).toHaveValue('  DOM  ');
+	await expect(page.getByLabel(scenario.label)).toHaveValue(scenario.answer);
 	const replay = page.waitForResponse(response => response.url().endsWith('/api/reviews'));
 	await page.getByRole('button', { name: 'Повторить', exact: true }).click();
 	const response = await replay;
 	expect(response.request().postData()).toBe(original);
 	expect(await response.json()).toEqual(stored);
-	await expect(page.getByRole('status').filter({ hasText: 'Верно' })).toBeVisible();
-	await expect(page.getByTestId('study-correction')).toHaveText('Dom');
-	expect(stored).toMatchObject({ cardId: card.id, progress: { version: 1, stage: 1 } });
+	await expect(page.getByRole('status').filter({ hasText: scenario.grade })).toBeVisible();
+	await expect(page.getByTestId('study-correction')).toHaveText(scenario.correction);
+	await expect(page.getByText('Это наш дом.', { exact: true })).toBeVisible();
+	await expect(page.getByText('To nasz dom.', { exact: true })).toBeVisible();
+	expect(stored).toMatchObject({ cardId: card.id, progress: { version: 1, stage: scenario.stage } });
 	expect(await page.evaluate(key => sessionStorage.getItem(key), `study-draft:${USER_A.id}`)).toBeNull();
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-	await page.screenshot({ path: `.wrangler/playwright/study-feedback-${testInfo.project.name}.png`, fullPage: true });
+	await page.screenshot({ path: `.wrangler/playwright/study-feedback-${testInfo.project.name}-${scenario.direction}-${scenario.action}.png`, fullPage: true });
 	await page.getByRole('button', { name: 'Дальше', exact: true }).focus();
 	await page.keyboard.press('Enter');
 	await expect(page.getByText('На сегодня всё готово.', { exact: true })).toBeVisible();
+	await expect(page.getByText('Это наш дом.', { exact: true })).toHaveCount(0);
+	await expect(page.getByText('To nasz dom.', { exact: true })).toHaveCount(0);
 });
 
 test('retains expired-session input for its account without showing or sending it for another account', async ({ page }) => {
@@ -366,7 +398,7 @@ test('confirms direction changes with input and keeps the saved direction when S
 	await expect(page.getByLabel('PL -> RU', { exact: true })).toHaveAttribute('aria-pressed', 'true');
 });
 
-test('retains the answer and retry envelope on provider 401 without expiring the app session', async ({ page }) => {
+test('retains an editable answer on provider 401 without expiring the app session', async ({ page }) => {
 	await seed(page);
 	await connect(page);
 	await page.goto('/');
@@ -378,9 +410,85 @@ test('retains the answer and retry envelope on provider 401 without expiring the
 	await expect(page.getByLabel('Ответ по-польски')).toHaveValue('ошибка подключения');
 	await expect(page.getByRole('button', { name: 'Выйти', exact: true })).toBeVisible();
 	expect(((await (await page.request.get('/api/study?direction=ru-pl')).json()) as StudyBatch).cards[0].progress).toBeNull();
-	const retry = page.waitForResponse(response => response.url().endsWith('/api/reviews'));
+	await expect(page.getByLabel('Ответ по-польски')).toBeEnabled();
+	await page.getByLabel('Ответ по-польски').fill('Dom');
+	await page.getByRole('button', { name: 'Проверить', exact: true }).click();
+	await expect(page.getByTestId('study-correction')).toHaveText('Dom');
+});
+
+for (const scenario of [
+	{ name: 'disconnected grading', connected: false, answer: 'domu', status: 409 },
+	{ name: 'usage limit', connected: true, answer: 'лимит', status: 429 },
+]) test(`restores editing and Reveal after ${scenario.name} and reload`, async ({ page }) => {
+	await seed(page);
+	if (scenario.connected) await connect(page);
+	await page.goto('/');
+	await page.getByLabel('Ответ по-польски').fill(scenario.answer);
+	const failed = page.waitForResponse(response => response.url().endsWith('/api/reviews'));
+	await page.getByRole('button', { name: 'Проверить', exact: true }).click();
+	expect((await failed).status()).toBe(scenario.status);
+	await expect(page.getByLabel('Ответ по-польски')).toBeEnabled();
+	await expect(page.getByRole('button', { name: 'Показать ответ', exact: true })).toBeEnabled();
+	expect(((await (await page.request.get('/api/study')).json()) as StudyBatch).cards[0].progress).toBeNull();
+	await page.reload();
+	await expect(page.getByLabel('Ответ по-польски')).toHaveValue(scenario.answer);
+	await page.getByLabel('Ответ по-польски').fill('мой ответ');
+	await page.getByRole('button', { name: 'Показать ответ', exact: true }).click();
+	await expect(page.getByTestId('study-correction')).toHaveText('Dom');
+});
+
+for (const scenario of [
+	{ name: 'its original card', archived: false, term: 'Дом' },
+	{ name: 'a separate retained answer when the card is archived', archived: true, term: 'Дом 2' },
+]) test(`restores a rejected pending review without a loaded queue to ${scenario.name}`, async ({ page }) => {
+	const [card] = await seed(page, 2);
+	await page.route('**/api/reviews', async route => { await route.fetch(); await route.abort(); });
+	await page.goto('/');
+	await page.getByLabel('Ответ по-польски').fill('domu');
+	await page.getByRole('button', { name: 'Проверить', exact: true }).click();
+	await expect(page.getByRole('alert')).toContainText('не подтверждено');
+	await page.unroute('**/api/reviews');
+	await page.reload();
+	if (scenario.archived) await page.route('**/api/reviews', async route => {
+		const response = await route.fetch();
+		expect(response.status()).toBe(409);
+		expect((await page.request.patch(`/api/cards/${card.id}`, { headers, data: { version: 1, archived: true } })).status()).toBe(200);
+		await route.fulfill({ response });
+	});
 	await page.getByRole('button', { name: 'Повторить', exact: true }).click();
-	expect((await retry).request().postData()).toBe((await failed).request().postData());
+	await expect(page.getByTestId('study-term')).toHaveText(scenario.term);
+	await expect(page.getByLabel('Ответ по-польски')).toBeEnabled();
+	await expect(page.getByLabel('Ответ по-польски')).toHaveValue(scenario.archived ? '' : 'domu');
+	if (scenario.archived) await expect(page.getByLabel('Сохранённый ответ')).toHaveValue('domu');
+	await page.unroute('**/api/reviews');
+	await page.getByRole('button', { name: 'Показать ответ', exact: true }).click();
+	await expect(page.getByTestId('study-correction')).toHaveText(scenario.archived ? 'Dom 2' : 'Dom');
+});
+
+for (const scenario of [
+	{ name: 'HTTP 500', status: 500 },
+	{ name: 'HTTP 503', status: 503 },
+]) test(`keeps an exact frozen retry after an uncertain ${scenario.name}`, async ({ page }) => {
+	await seed(page);
+	let original = '';
+	await page.route('**/api/reviews', async route => {
+		original = route.request().postData()!;
+		expect((await route.fetch()).status()).toBe(200);
+		await route.fulfill({ status: scenario.status, json: { code: 'internal_error', error: 'Неизвестный результат записи.' } });
+	});
+	await page.goto('/');
+	await page.getByLabel('Ответ по-польски').fill('Dom');
+	await page.getByRole('button', { name: 'Проверить', exact: true }).click();
+	await expect(page.getByRole('alert')).toContainText('Неизвестный результат');
+	await expect(page.getByLabel('Ответ по-польски')).toBeDisabled();
+	await page.unroute('**/api/reviews');
+	await page.reload();
+	await expect(page.getByRole('button', { name: 'Показать ответ', exact: true })).toBeDisabled();
+	const replay = page.waitForResponse(response => response.url().endsWith('/api/reviews'));
+	await page.getByRole('button', { name: 'Повторить', exact: true }).click();
+	expect((await replay).request().postData()).toBe(original);
+	expect(await (await replay).json()).toMatchObject({ progress: { version: 1 } });
+	await expect(page.getByTestId('study-correction')).toHaveText('Dom');
 });
 
 for (const scenario of [

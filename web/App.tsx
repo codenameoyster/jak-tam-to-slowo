@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Card, Direction, User } from '../shared/types';
-import { api, ApiError } from './api';
+import { api, ApiError, setApiAccount } from './api';
 import { Login } from './Login';
 import { Words } from './Words';
 import { Settings } from './Settings';
@@ -15,12 +15,17 @@ export function App() {
 	const [screen, setScreen] = useState<'study' | 'words' | 'settings' | 'add'>('study');
 	const [selectedCard, setSelectedCard] = useState<Card | null>(null);
 	const expired = useCallback(() => {
+		setApiAccount(null);
 		setUser(null);
 		setBusy(false);
 		setError('');
 		setScreen('study');
 		setSelectedCard(null);
 	}, []);
+	function signedIn(user: User) {
+		setApiAccount(user.id);
+		setUser(user);
+	}
 	const directionSaved = useCallback((direction: Direction) => {
 		setUser(current => current && current.direction !== direction ? { ...current, direction } : current);
 	}, []);
@@ -28,13 +33,17 @@ export function App() {
 	async function load() {
 		setLoading(true);
 		setError('');
-		try { setUser(await api<User>('/session')); }
+		try { signedIn(await api<User>('/session')); }
 		catch (error) {
 			if (error instanceof ApiError && error.code === 'unauthorized') setUser(null);
 			else setError('Не удалось загрузить аккаунт. Проверьте подключение и повторите.');
 		} finally { setLoading(false); }
 	}
-	useEffect(() => { void load(); }, []);
+	useEffect(() => {
+		window.addEventListener('account-mismatch', expired);
+		void load();
+		return () => window.removeEventListener('account-mismatch', expired);
+	}, [expired]);
 
 	async function logout() {
 		setBusy(true);
@@ -44,11 +53,13 @@ export function App() {
 			if (user) {
 				sessionStorage.removeItem(`card-draft:${user.id}`);
 				sessionStorage.removeItem(`study-draft:${user.id}`);
+				sessionStorage.removeItem(`word-edit:${user.id}`);
 			}
-			setUser(null);
-			setScreen('study');
-			setSelectedCard(null);
-		} catch { setError('Не удалось выйти. Проверьте подключение и повторите.'); }
+			expired();
+		} catch (error) {
+			if (error instanceof ApiError && (error.code === 'unauthorized' || error.code === 'account_mismatch')) expired();
+			else setError('Не удалось выйти. Проверьте подключение и повторите.');
+		}
 		finally { setBusy(false); }
 	}
 
@@ -62,8 +73,8 @@ export function App() {
 				<button aria-pressed={screen === 'add'} disabled={busy} onClick={() => setScreen('add')}>Добавить</button>
 				<button aria-pressed={screen === 'settings'} disabled={busy} onClick={() => setScreen('settings')}>Настройки</button>
 			</nav>
-			{screen === 'settings' ? <Settings key={user.id} /> : screen === 'add' ? <AddWord key={user.id} userId={user.id} busy={busy} onBusy={setBusy} onExpired={expired} onOpen={card => { setSelectedCard(card); setScreen('words'); }} /> : screen === 'words' ? <Words key={user.id} initialCard={selectedCard} /> : <Study key={user.id} user={user} onDirection={directionSaved} onBusy={setBusy} onExpired={expired} />}
-		</> : !error && <Login onLogin={setUser} />}
+			{screen === 'settings' ? <Settings key={user.id} /> : screen === 'add' ? <AddWord key={user.id} userId={user.id} busy={busy} onBusy={setBusy} onExpired={expired} onOpen={card => { setSelectedCard(card); setScreen('words'); }} /> : screen === 'words' ? <Words key={user.id} userId={user.id} initialCard={selectedCard} onExpired={expired} /> : <Study key={user.id} user={user} onDirection={directionSaved} onBusy={setBusy} onExpired={expired} />}
+		</> : !error && <Login onLogin={signedIn} />}
 		{error && <div className="notice"><p className="error" role="alert">{error}</p>{!user && <button onClick={load}>Повторить</button>}</div>}
 	</main>;
 }

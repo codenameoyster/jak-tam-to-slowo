@@ -4,6 +4,21 @@ import { createHash } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { USER_A, USER_B } from '../test/fixtures';
 
+test.beforeEach(async ({ page }) => {
+	await page.setExtraHTTPHeaders({ 'CF-Connecting-IP': `auth-${crypto.randomUUID()}` });
+});
+
+for (const scenario of [
+	{ name: 'API root', path: '/api' },
+	{ name: 'card collection', path: '/api/cards' },
+	{ name: 'unknown API route', path: '/api/missing' },
+]) test(`routes an unauthenticated ${scenario.name} navigation to the Worker`, async ({ page }) => {
+	const response = await page.goto(scenario.path);
+	expect(response!.status()).toBe(401);
+	expect(response!.headers()['content-type']).toContain('application/json');
+	expect(await response!.json()).toMatchObject({ code: 'unauthorized' });
+});
+
 test('keeps the account and direction after reload and revokes access at logout', async ({ page }) => {
 	await page.goto('/');
 	expect((await page.request.get('/api/session')).status()).toBe(401);

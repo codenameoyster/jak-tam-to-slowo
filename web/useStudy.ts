@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Direction, ReviewInput, ReviewResult, StudyBatch, StudyCard, User } from '../shared/types';
+import type { Card, Direction, ReviewInput, ReviewResult, StudyBatch, StudyCard, User } from '../shared/types';
 import { api, ApiError } from './api';
 
 type State = 'loading' | 'answering' | 'checking' | 'feedback' | 'empty' | 'error';
@@ -8,6 +8,7 @@ interface Recovery {
 	cardId: string | null;
 	answer: string;
 	pending: string | null;
+	reviewedCard: Pick<Card, 'id' | 'version' | 'pl' | 'ru' | 'examplePl' | 'exampleRu'> | null;
 	retainedAnswer: string;
 }
 interface Session extends Recovery {
@@ -25,7 +26,7 @@ function initial(user: User): Session {
 	let recovery: Recovery | null = null;
 	try { recovery = JSON.parse(sessionStorage.getItem(`study-draft:${user.id}`) ?? 'null'); } catch { recovery = null; }
 	return {
-		direction: user.direction, cardId: null, answer: '', pending: null, retainedAnswer: '', ...recovery,
+		direction: user.direction, cardId: null, answer: '', pending: null, reviewedCard: null, retainedAnswer: '', ...recovery,
 		queue: [], state: recovery?.pending ? 'error' : 'loading', feedback: null, nextDueAt: null,
 		error: recovery?.pending ? 'Сохранение ответа не подтверждено. Повторите запрос.' : '',
 		savedDirection: user.direction, savingDirection: false, expired: false,
@@ -48,8 +49,8 @@ export function useStudy(user: User) {
 
 	function persist(value: Recovery = live.current): boolean {
 		try {
-			const { direction, cardId, answer, pending, retainedAnswer } = value;
-			if (answer || pending || retainedAnswer) sessionStorage.setItem(key, JSON.stringify({ direction, cardId, answer, pending, retainedAnswer }));
+			const { direction, cardId, answer, pending, reviewedCard, retainedAnswer } = value;
+			if (answer || pending || retainedAnswer) sessionStorage.setItem(key, JSON.stringify({ direction, cardId, answer, pending, retainedAnswer, ...(pending ? { reviewedCard } : {}) }));
 			else sessionStorage.removeItem(key);
 			return true;
 		} catch {
@@ -144,7 +145,7 @@ export function useStudy(user: User) {
 		try {
 			const saved = await api<User>('/me', { method: 'PATCH', body: JSON.stringify({ direction }) });
 			if (version !== generation.current) return;
-			update({ direction: saved.direction, savedDirection: saved.direction, queue: [], state: 'loading', feedback: null,
+			update({ direction: saved.direction, savedDirection: saved.direction, queue: [], state: 'loading', feedback: null, reviewedCard: null,
 				answer: '', cardId: null, retainedAnswer: '', nextDueAt: null, savingDirection: false });
 			retryAction.current = null;
 			persist();
@@ -169,10 +170,13 @@ export function useStudy(user: User) {
 			...(action === 'answer' ? { action, answer: current.answer } : { action }),
 		};
 		const pending = current.pending ?? JSON.stringify(input);
+		const reviewedCard = current.pending ? current.reviewedCard : {
+			id: item.card.id, version: item.card.version, pl: item.card.pl, ru: item.card.ru, examplePl: item.card.examplePl, exampleRu: item.card.exampleRu,
+		};
 		retryAction.current = () => void submit(action);
-		if (!persist({ ...current, pending })) return;
+		if (!persist({ ...current, pending, reviewedCard })) return;
 		const version = generation.current;
-		update({ pending, state: 'checking', error: '' });
+		update({ pending, reviewedCard, state: 'checking', error: '' });
 		try {
 			const feedback = await api<ReviewResult>('/reviews', { method: 'POST', body: pending });
 			if (version !== generation.current) return;
@@ -185,10 +189,15 @@ export function useStudy(user: User) {
 			if (error instanceof ApiError && (error.code === 'version_conflict' || error.code === 'review_conflict')) {
 				generation.current++;
 				refill.current = null;
-				update({ pending: null, answer: '', cardId: null, retainedAnswer: current.answer || current.retainedAnswer,
+				update({ pending: null, reviewedCard: null, answer: '', cardId: null, retainedAnswer: current.answer || current.retainedAnswer,
 					queue: [], state: 'loading', error: error.message });
 				persist();
 				void load();
+			} else if (error instanceof ApiError && error.reviewEditable) {
+				const rejected: ReviewInput = JSON.parse(pending);
+				update({ pending: null, reviewedCard: null, cardId: rejected.cardId, state: current.queue.length ? 'answering' : 'loading', error: error.message });
+				persist();
+				if (!current.queue.length) void load();
 			} else update({ ...failed(error, 'Нет связи с сервером. Сохранение ответа не подтверждено. Повторите запрос.'), state: 'error' });
 		}
 	}
@@ -197,12 +206,13 @@ export function useStudy(user: User) {
 		const current = live.current;
 		if (current.state !== 'feedback') return;
 		const queue = current.queue.filter(item => item.card.id !== current.feedback?.cardId);
-		update({ queue, feedback: null, state: queue.length ? 'answering' : 'empty', error: '' });
+		update({ queue, feedback: null, reviewedCard: null, state: queue.length ? 'answering' : 'empty', error: '' });
 		if (queue.length <= 3) void load();
 	}
 
 	return {
 		current: session.queue[0] ?? null,
+		reviewedCard: session.reviewedCard,
 		remaining: session.queue.length - (session.feedback && session.queue[0]?.card.id === session.feedback.cardId ? 1 : 0),
 		state: session.state, answer: session.answer, feedback: session.feedback, nextDueAt: session.nextDueAt, error: session.error,
 		direction: session.direction, savedDirection: session.savedDirection, retainedAnswer: session.retainedAnswer,

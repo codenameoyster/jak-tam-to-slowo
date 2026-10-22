@@ -39,7 +39,7 @@ async function media(page: Page, options: { supported?: string[]; denied?: boole
 		class Recorder extends EventTarget {
 			state = 'inactive';
 			mimeType: string;
-			ondataavailable: ((event: BlobEvent) => void) | null = null;
+			ondataavailable: ((event: { data: Blob }) => void) | null = null;
 			onstop: (() => void) | null = null;
 			onerror: (() => void) | null = null;
 			static isTypeSupported(type: string) {
@@ -52,7 +52,7 @@ async function media(page: Page, options: { supported?: string[]; denied?: boole
 				if (!state.checked.includes(this.mimeType)) throw new Error('The format was not checked.');
 				state.selected.push(this.mimeType);
 				state.fail = () => this.onerror?.();
-				state.oversize = () => this.ondataavailable?.(new BlobEvent('dataavailable', { data: new Blob([new Uint8Array(2 * 1024 * 1024 + 1)]) }));
+				state.oversize = () => this.ondataavailable?.({ data: new Blob([new Uint8Array(2 * 1024 * 1024 + 1)]) });
 			}
 			start() { this.state = 'recording'; }
 			stop() {
@@ -60,7 +60,7 @@ async function media(page: Page, options: { supported?: string[]; denied?: boole
 				this.state = 'inactive';
 				state.stopCalls++;
 				queueMicrotask(() => {
-					this.ondataavailable?.(new BlobEvent('dataavailable', { data: new Blob([options.size === undefined ? new Uint8Array([0, 1, 254, 255]) : new Uint8Array(options.size)], { type: this.mimeType }) }));
+					this.ondataavailable?.({ data: new Blob([options.size === undefined ? new Uint8Array([0, 1, 254, 255]) : new Uint8Array(options.size)], { type: this.mimeType }) });
 					this.onstop?.();
 				});
 			}
@@ -151,17 +151,12 @@ test('stops at 30 seconds, releases all tracks, and prevents overlapping transcr
 
 test('keeps an overlong dictated Study answer editable across reload until it is corrected', async ({ page }) => {
 	await media(page);
-	await page.route('**/api/dictation', async route => {
-		const response = await route.fetch();
-		expect(response.status()).toBe(200);
-		await route.fulfill({ response, json: { text: 'дом' } });
-	});
 	const reviews: ReviewInput[] = [];
 	page.on('request', request => { if (request.url().endsWith('/api/reviews')) reviews.push(request.postDataJSON()); });
 	await page.goto('/');
 	await page.getByLabel('PL -> RU', { exact: true }).click();
 	const input = page.getByLabel('Ответ по-русски');
-	const typed = 'слово '.repeat(83), combined = `${typed} дом`;
+	const typed = 'слово '.repeat(83), combined = `${typed} слово`;
 	await input.fill(typed);
 	await start(page);
 	await page.getByRole('button', { name: 'Завершить запись', exact: true }).click();

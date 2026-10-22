@@ -95,11 +95,34 @@ it('revokes only the current session at logout', async () => {
 	expect(await env.DB.prepare('SELECT count(*) AS n FROM sessions').first('n')).toBe(1);
 });
 
+it.each([
+	{ name: 'expired session', cookiePresent: true },
+	{ name: 'missing cookie', cookiePresent: false },
+])('confirms deliberate logout with $name', async ({ cookiePresent }) => {
+	const cookie = await login(USER_A.id);
+	await env.DB.prepare('UPDATE sessions SET expires_at=0').run();
+	const response = await request('/api/session', { method: 'DELETE', cookie: cookiePresent ? cookie : undefined, accountId: USER_A.id });
+	expect(response.status).toBe(204);
+	expect(response.headers.get('Set-Cookie')).toContain('Max-Age=0');
+});
+
 it('returns 429 without creating a session when the login limit is reached', async () => {
 	vi.spyOn(env.LOGIN_LIMITER, 'limit').mockResolvedValue({ success: false });
 	const response = await request('/api/session', { method: 'POST', body: { username: USER_A.username, password: USER_A.password } });
 	expect(response.status).toBe(429);
 	expect(await env.DB.prepare('SELECT count(*) AS n FROM sessions').first('n')).toBe(0);
+});
+
+it('uses the cookie as authority and permits bootstrap and explicit login', async () => {
+	const cookie = await login(USER_B.id);
+	expect(await (await request('/api/session', { cookie })).json()).toMatchObject({ id: USER_B.id });
+	const mismatch = await request('/api/me', { cookie, accountId: USER_A.id, method: 'PATCH', body: { direction: 'pl-ru' } });
+	expect(mismatch.status).toBe(409);
+	const matching = await request('/api/me', { cookie, accountId: USER_B.id, method: 'PATCH', body: { direction: 'pl-ru' } });
+	expect(await matching.json()).toMatchObject({ id: USER_B.id, direction: 'pl-ru' });
+	const explicit = await request('/api/session', { cookie, accountId: USER_A.id, method: 'POST', body: { username: USER_A.username, password: USER_A.password } });
+	expect(explicit.status).toBe(200);
+	expect(await explicit.json()).toMatchObject({ id: USER_A.id });
 });
 
 it.each([

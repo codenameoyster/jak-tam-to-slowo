@@ -99,6 +99,7 @@ it.each([
 	const semantic = { ...input, progressVersion: 1 };
 	const failed = await review(semantic);
 	expect(failed.status).toBe(status);
+	expect(failed.headers.get('X-Review-Recovery')).toBe('editable');
 	expect(await failed.json()).toMatchObject({ code, error: expect.any(String) });
 	expect(await tables()).toEqual(before);
 	provider.responses = () => responseStream(correct);
@@ -123,6 +124,7 @@ it.each([
 	provider.responses = () => responseStream(result);
 	const response = await review();
 	expect(response.status).toBe(503);
+	expect(response.headers.get('X-Review-Recovery')).toBe('editable');
 	expect(await response.json()).toMatchObject({ code: 'ai_invalid_response' });
 	expect(await tables()).toEqual({ state: [], reviews: [] });
 });
@@ -218,4 +220,51 @@ it('requires an authenticated same-origin POST', async () => {
 	expect((await request('/api/reviews', { cookie })).status).toBe(405);
 	expect(calls()).toHaveLength(0);
 	expect(await tables()).toEqual({ state: [], reviews: [] });
+});
+
+it('marks disconnected grading as editable without writing a review', async () => {
+	expect((await request('/api/ai/connection', { method: 'DELETE', cookie })).status).toBe(200);
+	const response = await review();
+	expect(response.status).toBe(409);
+	expect(response.headers.get('X-Review-Recovery')).toBe('editable');
+	expect(await tables()).toEqual({ state: [], reviews: [] });
+});
+
+it('keeps a storage outcome uncertain when the batch commits and then throws', async () => {
+	const batch = env.DB.batch.bind(env.DB);
+	vi.spyOn(env.DB, 'batch').mockImplementationOnce(async statements => { await batch(statements); throw new Error('Lost database response.'); });
+	const response = await review({ ...input, answer: 'Słowo' });
+	expect(response.status).toBe(500);
+	expect(response.headers.get('X-Review-Recovery')).toBeNull();
+	expect((await tables()).reviews).toHaveLength(1);
+	expect((await review({ ...input, answer: 'Słowo' })).status).toBe(200);
+	expect((await tables()).reviews).toHaveLength(1);
+});
+
+it.each([
+	{ name: 'semantic review', path: '/api/reviews', method: 'POST', body: input },
+	{ name: 'exact review', path: '/api/reviews', method: 'POST', body: { ...input, answer: 'Słowo' } },
+	{ name: 'draft generation', path: '/api/cards/draft', method: 'POST', body: { text: 'dom', language: 'pl' } },
+	{ name: 'dictation', path: '/api/dictation', method: 'POST', body: {} },
+	{ name: 'preference change', path: '/api/me', method: 'PATCH', body: { direction: 'pl-ru' } },
+	{ name: 'connection read', path: '/api/ai/connection', method: 'GET', body: undefined },
+	{ name: 'connection start', path: '/api/ai/connection/start', method: 'POST', body: undefined },
+	{ name: 'connection finish', path: '/api/ai/connection/finish', method: 'POST', body: { address: CALLBACK } },
+	{ name: 'connection model change', path: '/api/ai/connection', method: 'PATCH', body: { model: 'b-second' } },
+	{ name: 'connection disconnect', path: '/api/ai/connection', method: 'DELETE', body: undefined },
+	{ name: 'logout', path: '/api/session', method: 'DELETE', body: undefined },
+	{ name: 'shared edit', path: `/api/cards/${CARD_A.id}`, method: 'PATCH', body: { version: 1, archived: true } },
+])('rejects a stale displayed account before $name', async ({ path, method, body }) => {
+	const other = await connect(USER_B.id, 'b');
+	const connections = await env.DB.prepare('SELECT * FROM ai_connections ORDER BY user_id').all();
+	const count = provider.calls.length;
+	const response = await request(path, { method, body, cookie: other, accountId: USER_A.id });
+	expect(response.status).toBe(409);
+	expect(await response.json()).toMatchObject({ code: 'account_mismatch' });
+	expect(response.headers.get('Set-Cookie')).toBeNull();
+	expect(provider.calls).toHaveLength(count);
+	expect((await env.DB.prepare('SELECT * FROM ai_connections ORDER BY user_id').all()).results).toEqual(connections.results);
+	expect(await tables()).toEqual({ state: [], reviews: [] });
+	expect(await (await request('/api/session', { cookie: other })).json()).toMatchObject({ id: USER_B.id, direction: 'ru-pl' });
+	expect(await env.DB.prepare('SELECT archived FROM cards WHERE id=?').bind(CARD_A.id).first('archived')).toBe(0);
 });

@@ -71,8 +71,14 @@ export async function handleReview(request: Request, env: Env, user: User): Prom
 	if (saved) return Response.json(saved);
 	const card = await readCard(env, cardId);
 	if (card.archived || card.version !== cardVersion) throw new HttpError(409, 'version_conflict', 'Карточка уже изменена. Откройте следующую карточку.');
-	const graded = input.action === 'answer' ? await gradeAnswer(env, user.id, card, direction, input.answer) : {
-		result: { grade: 'again' as const, correction: direction === 'ru-pl' ? card.pl : card.ru, explanationRu: 'Повторите слово.' }, source: 'reveal' as const,
-	};
+	let graded: { result: GradeResult; source: ReviewResult['source'] };
+	try {
+		graded = input.action === 'answer' ? await gradeAnswer(env, user.id, card, direction, input.answer) : {
+			result: { grade: 'again', correction: direction === 'ru-pl' ? card.pl : card.ru, explanationRu: 'Повторите слово.' }, source: 'reveal',
+		};
+	} catch (error) {
+		if (!(error instanceof HttpError)) throw error;
+		return Response.json({ error: error.message, code: error.code }, { status: error.status, headers: { 'X-Review-Recovery': 'editable' } });
+	}
 	return Response.json(await commitReview(env, user.id, input, graded.result, graded.source, Date.now()));
 }

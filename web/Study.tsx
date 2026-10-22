@@ -11,7 +11,7 @@ export function Study({ user, onDirection, onBusy, onExpired }: {
 	const nextButton = useRef<HTMLButtonElement>(null);
 	const polish = study.direction === 'ru-pl';
 	const target = polish ? 'pl' : 'ru';
-	const current = study.current?.card;
+	const current = study.reviewedCard ?? study.current?.card;
 	const grade = study.feedback && { correct: 'Верно', almost: 'Почти верно', again: 'Повторите' }[study.feedback.grade];
 
 	useEffect(() => { onDirection(study.savedDirection); }, [study.savedDirection, onDirection]);
@@ -49,6 +49,7 @@ export function Study({ user, onDirection, onBusy, onExpired }: {
 			<div className={`study-feedback ${study.feedback.grade}`} role="status" aria-atomic="true">
 				<h2>{grade}</h2>
 				<p className="study-correction" data-testid="study-correction" lang={target}>{study.feedback.correction}</p>
+				{current && <p className="study-example" lang={target}>{polish ? current.examplePl : current.exampleRu}</p>}
 				<p>{study.feedback.explanationRu}</p>
 			</div>
 			<button ref={nextButton} className="primary" onClick={study.next}>Дальше</button>

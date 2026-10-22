@@ -1,7 +1,16 @@
 import { expect, test, type Page } from '@playwright/test';
 import { USER_A, USER_B } from '../test/fixtures';
 
+test.afterEach(async ({ page, baseURL }) => {
+	const headers = { Origin: baseURL!, 'CF-Connecting-IP': `settings-cleanup-${crypto.randomUUID()}` };
+	for (const user of [USER_A, USER_B]) {
+		expect((await page.request.post('/api/session', { headers, data: { username: user.username, password: user.password } })).status()).toBe(200);
+		expect((await page.request.delete('/api/ai/connection', { headers })).status()).toBe(200);
+	}
+});
+
 async function login(page: Page, user = USER_A) {
+	await page.setExtraHTTPHeaders({ 'CF-Connecting-IP': `settings-${crypto.randomUUID()}` });
 	await page.goto('/');
 	await page.getByLabel('Имя пользователя').fill(user.username);
 	await page.getByLabel('Пароль', { exact: true }).fill(user.password);

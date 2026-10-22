@@ -3,13 +3,33 @@ import type { Card, CardContent, CardPage } from '../shared/types';
 import { api, ApiError } from './api';
 import { CardFields } from './CardFields';
 
-export function Words({ initialCard = null }: { initialCard?: Card | null }) {
+interface Edit { card: Pick<Card, 'id' | 'version'>; value: CardContent }
+
+export function Words({ userId, onExpired, initialCard = null }: { userId: string; onExpired(): void; initialCard?: Card | null }) {
+	const key = `word-edit:${userId}`;
 	const [page, setPage] = useState<CardPage>({ cards: [], nextCursor: null });
 	const [query, setQuery] = useState('');
 	const [search, setSearch] = useState('');
-	const [edit, setEdit] = useState<{ card: Card; value: CardContent } | null>(null);
+	const [edit, setEdit] = useState<Edit | null>(() => {
+		try { return JSON.parse(sessionStorage.getItem(key) ?? 'null'); } catch { return null; }
+	});
 	const [busy, setBusy] = useState(true);
 	const [error, setError] = useState('');
+	const [storageError, setStorageError] = useState('');
+
+	function persist(value: Edit | null): boolean {
+		try {
+			if (value) sessionStorage.setItem(key, JSON.stringify(value));
+			else sessionStorage.removeItem(key);
+			setStorageError('');
+			return true;
+		} catch { setStorageError('Браузер не сохранил правки. Скопируйте текст и освободите место перед повтором.'); return false; }
+	}
+	function changeEdit(value: Edit | null) { setEdit(value); persist(value); }
+	function failed(error: unknown, fallback: string) {
+		if (error instanceof ApiError && error.code === 'unauthorized') onExpired();
+		else setError(error instanceof ApiError ? error.message : fallback);
+	}
 
 	async function load(query: string, cursor?: string) {
 		setBusy(true);
@@ -20,19 +40,19 @@ export function Words({ initialCard = null }: { initialCard?: Card | null }) {
 			const result = await api<CardPage>(`/cards?${params}`);
 			setPage(current => ({ cards: cursor ? [...current.cards, ...result.cards] : result.cards, nextCursor: result.nextCursor }));
 			setSearch(query);
-		} catch (error) { setError(error instanceof ApiError ? error.message : 'Нет связи с сервером. Повторите поиск.'); }
+		} catch (error) { failed(error, 'Нет связи с сервером. Повторите поиск.'); }
 		finally { setBusy(false); }
 	}
-	useEffect(() => { void load(''); if (initialCard) select(initialCard); }, [initialCard]);
+	useEffect(() => { void load(''); if (initialCard && !edit) select(initialCard); }, [initialCard]);
 
 	function select(card: Card) {
 		const { pl, ru, meaningRu, examplePl, exampleRu, alternativesPl, alternativesRu } = card;
-		setEdit({ card, value: { pl, ru, meaningRu, examplePl, exampleRu, alternativesPl, alternativesRu } });
+		setEdit({ card: { id: card.id, version: card.version }, value: { pl, ru, meaningRu, examplePl, exampleRu, alternativesPl, alternativesRu } });
 		setError('');
 	}
 
 	async function save(archive = false) {
-		if (!edit) return;
+		if (!edit || !persist(edit)) return;
 		setBusy(true);
 		setError('');
 		try {
@@ -42,9 +62,9 @@ export function Words({ initialCard = null }: { initialCard?: Card | null }) {
 				alternativesRu: edit.value.alternativesRu.filter(value => value.trim()),
 			};
 			await api<Card>(`/cards/${edit.card.id}`, { method: 'PATCH', body: JSON.stringify(body) });
-			setEdit(null);
+			changeEdit(null);
 			await load(search);
-		} catch (error) { setError(error instanceof ApiError ? error.message : 'Нет связи с сервером. Правки остались в форме. Попробуйте сохранить ещё раз.'); }
+		} catch (error) { failed(error, 'Нет связи с сервером. Правки остались в форме. Попробуйте сохранить ещё раз.'); }
 		finally { setBusy(false); }
 	}
 
@@ -56,11 +76,11 @@ export function Words({ initialCard = null }: { initialCard?: Card | null }) {
 			<p>Изменения видны обоим ученикам.</p>
 			<p className="hint">Сохраняйте значение карточки. Для другого значения используйте «Добавить».</p>
 			<form onSubmit={submit}>
-				<fieldset disabled={busy}><CardFields value={edit.value} onChange={value => setEdit({ ...edit, value })} /></fieldset>
+				<fieldset disabled={busy}><CardFields value={edit.value} onChange={value => changeEdit({ ...edit, value })} /></fieldset>
 				{error && <p className="error" role="alert">{error}</p>}
 				<button className="primary" disabled={busy} type="submit">Сохранить</button>
 				<div className="edit-actions">
-					<button type="button" disabled={busy} onClick={() => { setEdit(null); void load(search); }}>Отменить правки</button>
+					<button type="button" disabled={busy} onClick={() => { changeEdit(null); void load(search); }}>Отменить правки</button>
 					<button type="button" disabled={busy} onClick={() => void save(true)}>В архив</button>
 				</div>
 				<p className="hint">Архив скроет карточку у обоих учеников.</p>
@@ -80,6 +100,7 @@ export function Words({ initialCard = null }: { initialCard?: Card | null }) {
 			</li>)}</ul>
 			{page.nextCursor && <button disabled={busy} onClick={() => void load(search, page.nextCursor!)}>Ещё слова</button>}
 		</>}
+		{storageError && <p className="error" role="alert">{storageError}</p>}
 		{busy && <p role="status">Загрузка…</p>}
 	</section>;
 }

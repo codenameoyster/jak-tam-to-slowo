@@ -1,4 +1,5 @@
 name = "jak-tam-to-slowo"
+account_id = "d89bca31204306ee78e165e9f8ebd3be"
 main = "src/index.ts"
 compatibility_date = "2026-10-21"
 compatibility_flags = ["nodejs_compat"]
@@ -6,9 +7,13 @@ workers_dev = false
 preview_urls = false
 routes = [{ pattern = "learn.rustatian.me", custom_domain = true }]
 
+[vars]
+CHATGPT_HOST_ID = "urn:uuid:d60bf487-5c11-47b1-8a64-7583b6521a6f"
+
 [[d1_databases]]
 binding = "DB"
-database_name = "polish-cards"
+database_name = "jak-tam-to-slowo"
+database_id = "3e8c178e-be58-462c-bf9c-0e76543c9429"
 migrations_dir = "migrations"
 
 [ai]
@@ -37,7 +42,7 @@ port = 8787
 local_protocol = "http"
 
 [secrets]
-required = ["ACCOUNTS", "AI_TOKEN_KEY", "CHATGPT_HOST_ID"]
+required = ["ACCOUNTS", "AI_TOKEN_KEY"]
 
 [observability]
 enabled = true

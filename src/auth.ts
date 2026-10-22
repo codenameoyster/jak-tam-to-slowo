@@ -41,6 +41,8 @@ export async function requireSession(request: Request, env: Env): Promise<{ user
 			.bind(sessionHash, Date.now()).first<User & { credential_fingerprint: string }>();
 		const account = row && accounts(env).find(account => account.id === row.id);
 		if (row && account && row.credential_fingerprint === await fingerprint(account)) {
+			const displayedAccount = request.headers.get('X-Account-ID');
+			if (displayedAccount !== null && displayedAccount !== row.id) throw new HttpError(409, 'account_mismatch', 'Аккаунт изменился в другой вкладке. Войдите снова.');
 			return { user: { id: row.id, username: row.username, displayName: row.displayName, direction: row.direction }, sessionHash };
 		}
 	}
@@ -74,8 +76,12 @@ export async function handleSession(request: Request, env: Env): Promise<Respons
 		return Response.json(user, { headers: { 'Set-Cookie': cookie(request, env, value, 604_800) } });
 	}
 	if (request.method === 'DELETE') {
-		const value = token(request, env);
-		if (value) await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(await hash(value)).run();
+		try {
+			const { sessionHash } = await requireSession(request, env);
+			await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(sessionHash).run();
+		} catch (error) {
+			if (!(error instanceof HttpError) || error.code !== 'unauthorized') throw error;
+		}
 		return new Response(null, { status: 204, headers: { 'Set-Cookie': cookie(request, env, '', 0) } });
 	}
 	return Response.json(await requireUser(request, env));
