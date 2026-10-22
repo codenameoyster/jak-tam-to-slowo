@@ -3,7 +3,7 @@ import { env } from 'cloudflare:workers';
 import { expect, it, vi } from 'vitest';
 import worker from '../src/index';
 import { login, request } from './client';
-import { USER_A, USER_B, testAccountSecret } from './fixtures';
+import { CARD_A, USER_A, USER_B, testAccountSecret } from './fixtures';
 
 it.each([
 	{ name: 'wrong password', method: 'POST', body: { username: USER_A.username, password: 'wrong-password' }, status: 401 },
@@ -45,6 +45,55 @@ it('stores a hashed seven-day session and retains the stable user ID', async () 
 });
 
 it.each([
+	{ name: 'Polish mąż at the minimum length', username: 'mąż' },
+	{ name: 'Polish żona', username: 'żona' },
+	{ name: 'other Unicode letters', username: 'Иван' },
+	{ name: 'ASCII letters, digits, and separators', username: 'A1.z_-' },
+	{ name: 'the maximum length', username: 'ż'.repeat(40) },
+])('logs in with $name', async ({ username }) => {
+	env.ACCOUNTS = testAccountSecret.replace(USER_A.username, username);
+	const response = await request('/api/session', { method: 'POST', body: { username, password: USER_A.password } });
+	expect(response.status).toBe(200);
+	expect(await response.json()).toMatchObject({ id: USER_A.id, username });
+	const cookie = response.headers.get('Set-Cookie')!.split(';')[0];
+	const current = await request('/api/session', { cookie });
+	expect(current.status).toBe(200);
+	expect(await current.json()).toMatchObject({ id: USER_A.id, username });
+});
+
+it.each([
+	{ name: 'an empty name', username: '' },
+	{ name: 'a name below the minimum length', username: 'ąż' },
+	{ name: 'a name above the maximum length', username: 'ż'.repeat(41) },
+	{ name: 'a space', username: 'ma ż' },
+	{ name: 'unsupported punctuation', username: 'ma@z' },
+	{ name: 'a non-ASCII digit', username: 'mąż١' },
+	{ name: 'an emoji', username: 'mąż🙂' },
+	{ name: 'combining marks', username: 'ma\u0328z\u0307' },
+	{ name: 'a duplicate name', username: USER_B.username },
+])('rejects account configuration with $name before login', async ({ username }) => {
+	env.ACCOUNTS = testAccountSecret.replace(USER_A.username, username);
+	const response = await request('/api/session', { method: 'POST', body: { username: USER_B.username, password: USER_B.password } });
+	expect(response.status).toBe(503);
+	expect(await response.json()).toMatchObject({ code: 'setup_required' });
+	expect(await env.DB.prepare('SELECT count(*) AS n FROM sessions').first('n')).toBe(0);
+	expect(await env.DB.prepare('SELECT count(*) AS n FROM users').first('n')).toBe(0);
+});
+
+it.each([
+	{ name: 'husband case change', username: 'mąż', input: 'Mąż' },
+	{ name: 'husband missing accents', username: 'mąż', input: 'maz' },
+	{ name: 'wife case change', username: 'żona', input: 'Żona' },
+	{ name: 'wife missing accent', username: 'żona', input: 'zona' },
+])('rejects $name in an exact username lookup', async ({ username, input }) => {
+	env.ACCOUNTS = testAccountSecret.replace(USER_A.username, username);
+	const response = await request('/api/session', { method: 'POST', body: { username: input, password: USER_A.password } });
+	expect(response.status).toBe(401);
+	expect(await response.json()).toMatchObject({ code: 'invalid_credentials' });
+	expect(await env.DB.prepare('SELECT count(*) AS n FROM sessions').first('n')).toBe(0);
+});
+
+it.each([
 	{ name: 'expired session', change: async () => { await env.DB.prepare('UPDATE sessions SET expires_at = ?').bind(Date.now() - 1).run(); } },
 	{ name: 'rotated password', change: async () => { env.ACCOUNTS = testAccountSecret.replace(createHash('sha256').update(USER_A.password).digest('hex'), 'a'.repeat(64)); } },
 	{ name: 'changed username', change: async () => { env.ACCOUNTS = testAccountSecret.replace(USER_A.username, 'anna-new'); } },
@@ -56,18 +105,49 @@ it.each([
 	expect((await request('/api/me', { method: 'PATCH', cookie, body: { direction: 'pl-ru' } })).status).toBe(401);
 });
 
-it('updates account metadata on login without losing direction or changing identity', async () => {
-	const cookie = await login(USER_A.id);
+it.each([
+	{ name: 'owner to mąż', user: USER_A, other: USER_B, username: 'mąż', displayName: 'Mąż', canManage: true, manageStatus: 200 },
+	{ name: 'learner to żona', user: USER_B, other: USER_A, username: 'żona', displayName: 'Żona', canManage: false, manageStatus: 403 },
+])('retains identity, progress, and permissions after renaming the $name', async ({ user, other, username, displayName, canManage, manageStatus }) => {
+	const now = Date.parse('2026-10-22T10:00:00.000Z');
+	vi.spyOn(Date, 'now').mockReturnValue(now);
+	const provider = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Unexpected provider request.'));
+	const cookie = await login(user.id);
 	const updated = await request('/api/me', { method: 'PATCH', cookie, body: { direction: 'pl-ru' } });
 	expect(updated.status).toBe(200);
-	expect(await updated.json()).toMatchObject({ id: USER_A.id, direction: 'pl-ru' });
-	env.ACCOUNTS = testAccountSecret.replace(USER_A.username, 'anna-new').replace(USER_A.displayName, 'Аня');
-	const response = await request('/api/session', { method: 'POST', body: { username: 'anna-new', password: USER_A.password } });
+	expect(await updated.json()).toMatchObject({ id: user.id, direction: 'pl-ru' });
+	expect((await request('/api/cards', { method: 'POST', cookie, body: CARD_A })).status).toBe(201);
+	const input = { attemptId: crypto.randomUUID(), cardId: CARD_A.id, cardVersion: 1, progressVersion: 0, direction: 'pl-ru', action: 'answer', answer: 'Слово' };
+	const reviewed = await request('/api/reviews', { method: 'POST', cookie, body: input });
+	expect(reviewed.status).toBe(200);
+	const result = await reviewed.json();
+	expect(result).toMatchObject({ grade: 'correct', source: 'exact', progress: { stage: 1, version: 1, dueAt: now + 86_400_000, lastReviewedAt: now } });
+	expect(await (await request('/api/ai/connection', { cookie })).json()).toMatchObject({ canManage });
+
+	env.ACCOUNTS = testAccountSecret.replace(user.username, username).replace(user.displayName, displayName);
+	const response = await request('/api/session', { method: 'POST', body: { username, password: user.password } });
 	expect(response.status).toBe(200);
-	expect(await response.json()).toEqual({ id: USER_A.id, username: 'anna-new', displayName: 'Аня', direction: 'pl-ru' });
+	expect(await response.json()).toEqual({ id: user.id, username, displayName, direction: 'pl-ru' });
+	const renamedCookie = response.headers.get('Set-Cookie')!.split(';')[0];
+	expect((await request('/api/session', { cookie })).status).toBe(401);
+	expect((await request('/api/me', { method: 'PATCH', cookie, body: { direction: 'ru-pl' } })).status).toBe(401);
+	expect((await request('/api/session', { method: 'POST', body: { username: user.username, password: user.password } })).status).toBe(401);
+	const current = await request('/api/session', { cookie: renamedCookie });
+	expect(current.status).toBe(200);
+	expect(await current.json()).toEqual({ id: user.id, username, displayName, direction: 'pl-ru' });
+	const retry = await request('/api/reviews', { method: 'POST', cookie: renamedCookie, body: input });
+	expect(retry.status).toBe(200);
+	expect(await retry.json()).toEqual(result);
+	expect((await env.DB.prepare('SELECT user_id, card_id, direction, stage, version, due_at FROM review_state').all()).results).toEqual([
+		{ user_id: user.id, card_id: CARD_A.id, direction: 'pl-ru', stage: 1, version: 1, due_at: now + 86_400_000 },
+	]);
+	expect((await env.DB.prepare('SELECT user_id, attempt_id FROM reviews').all()).results).toEqual([{ user_id: user.id, attempt_id: input.attemptId }]);
 	expect(await env.DB.prepare('SELECT count(*) AS n FROM users').first('n')).toBe(1);
-	const other = await request('/api/session', { cookie: await login(USER_B.id) });
-	expect(await other.json()).toMatchObject({ id: USER_B.id, direction: 'ru-pl' });
+	expect(await (await request('/api/ai/connection', { cookie: renamedCookie })).json()).toMatchObject({ canManage });
+	expect((await request('/api/ai/connection', { method: 'DELETE', cookie: renamedCookie })).status).toBe(manageStatus);
+	const otherSession = await request('/api/session', { cookie: await login(other.id) });
+	expect(await otherSession.json()).toMatchObject({ id: other.id, direction: 'ru-pl' });
+	expect(provider).not.toHaveBeenCalled();
 });
 
 it.each([

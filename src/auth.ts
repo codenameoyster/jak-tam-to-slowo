@@ -11,7 +11,7 @@ function accounts(env: Env): Account[] {
 		const parsed = value.map(item => {
 			const record = object(item, ['id', 'username', 'displayName', 'passwordHash']);
 			const account = { id: text(record.id, 36), username: text(record.username, 40), displayName: text(record.displayName, 80), passwordHash: text(record.passwordHash, 64) };
-			if (!/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(account.id) || !/^[A-Za-z0-9._-]{3,40}$/.test(account.username) || !/^[a-f0-9]{64}$/.test(account.passwordHash)) throw new Error();
+			if (!/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(account.id) || !/^[\p{L}0-9._-]{3,40}$/u.test(account.username) || !/^[a-f0-9]{64}$/.test(account.passwordHash)) throw new Error();
 			return account;
 		});
 		if (new Set(parsed.map(account => account.id)).size !== parsed.length || new Set(parsed.map(account => account.username)).size !== parsed.length) throw new Error();

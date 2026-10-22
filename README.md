@@ -19,7 +19,7 @@ bun install --frozen-lockfile
 umask 077
 mkdir -m 700 .local
 set -C
-bun scripts/credentials.ts learner-1 'Ученик 1' learner-2 'Ученик 2' > .local/accounts.json 2> .local/credentials.txt
+bun scripts/credentials.ts 'mąż' 'Mąż' 'żona' 'Żona' > .local/accounts.json 2> .local/credentials.txt
 ```
 
 Save the passwords from `.local/credentials.txt` in a password manager. Create the local secret key and a separate local host identity once. These files stay ignored and owner-only.
@@ -45,6 +45,8 @@ Keep `ACCOUNTS` and `AI_TOKEN_KEY` in `.dev.vars`. Add `OPENAI_TRANSCRIPTION_API
 
 `ACCOUNTS` contains a JSON array of `{id, username, displayName, passwordHash}`. The credential command generates 24-character passwords from 18 random bytes. Use only these generated passwords with the SHA-256 credential format.
 
+Usernames contain 3-40 Unicode letters, ASCII digits, dots, underscores, or dashes. Names are case-sensitive. To rename an account, update its `username` and `displayName` in `ACCOUNTS`. Keep `id` and `passwordHash` unchanged. Sign in again with the new username and the existing password. Direction, progress, and shared ChatGPT ownership stay with the stable ID.
+
 To rotate local passwords, run the command below with a restrictive umask and new output files. Save the new passwords. Replace the local `ACCOUNTS` value with the new JSON array. Keep the new account file for the next rotation.
 
 ```sh
@@ -57,7 +59,7 @@ For production, use `.wrangler/production/accounts.json` as the rotation input. 
 
 ## Shared ChatGPT connection
 
-Both learners use the subscription of `learner-1`. `CHATGPT_OWNER_ID` selects its stable application ID, `3c5d81fe-1a09-4d3f-bc88-e4009f01aeca`, in production. Only this authenticated owner can connect, reconnect, choose the model, or disconnect in **Настройки**. The other learner sees shared status and the current model. That learner needs no ChatGPT account or subscription. The server derives the `canManage` permission from the session and owner configuration.
+Both learners use the subscription of `mąż`. `CHATGPT_OWNER_ID` selects its stable application ID, `3c5d81fe-1a09-4d3f-bc88-e4009f01aeca`, in production. Only this authenticated owner can connect, reconnect, choose the model, or disconnect in **Настройки**. The other learner sees shared status and the current model. That learner needs no ChatGPT account or subscription. The server derives the `canManage` permission from the session and owner configuration.
 
 As the owner, select **Продолжить с ChatGPT**. Open the sign-in link. Complete provider consent. Copy the full address from the loopback error page into the app. The callback address is `http://127.0.0.1:47319/auth/callback`. Keep callback addresses private. The app uses the copied-address pattern from redlamp.me. Local tests use controlled provider responses. Hosted eligibility, owner consent, and model access from the deployed Worker remain unverified. See [OpenAI registration requirements](https://developers.openai.com/siwc/token-sharing-open-source/sign-in).
 
@@ -105,7 +107,7 @@ After a binding change, run `bunx wrangler types src/worker-configuration.d.ts -
 
 The approved account is **TheRustatian**, `d89bca31204306ee78e165e9f8ebd3be`. `wrangler.toml` configures Worker `jak-tam-to-slowo`, D1 `jak-tam-to-slowo` (`3e8c178e-be58-462c-bf9c-0e76543c9429`), and Custom Domain `learn.rustatian.me`. The dedicated database exists and has migrations `0001` through `0005`. The Worker is not yet published. The owner confirmed the existing Workers Paid plan. Billing entitlements and hostname conflicts still need a final check before publication.
 
-The initial usernames are `learner-1` and `learner-2`. Their generated passwords are in `.wrangler/production/credentials.txt`. Stable account IDs and password hashes are in `.wrangler/production/accounts.json`. `.wrangler/production/secrets.json` must contain `ACCOUNTS`, `AI_TOKEN_KEY`, and `OPENAI_TRANSCRIPTION_API_KEY`. Add the speech key to the existing protected file. Preserve the account credentials and encryption key. `.wrangler/production/host-id.txt` is a backup of the non-secret host ID in `wrangler.toml`. The directory uses mode `0700`; each file uses `0600`. Preserve these files and put a protected copy in the owner's password manager. Secret values must stay out of source, assets, command arguments, CI, and logs.
+The production usernames are `mąż` (ID `3c5d81fe-1a09-4d3f-bc88-e4009f01aeca`) and `żona` (ID `82c369b2-368d-4546-af9b-1b3941d8d8b1`). Their generated passwords are in `.wrangler/production/credentials.txt`. Stable account IDs and password hashes are in `.wrangler/production/accounts.json`. `.wrangler/production/secrets.json` must contain `ACCOUNTS`, `AI_TOKEN_KEY`, and `OPENAI_TRANSCRIPTION_API_KEY`. Add the speech key to the existing protected file. Preserve the account credentials and encryption key. `.wrangler/production/host-id.txt` is a backup of the non-secret host ID in `wrangler.toml`. The directory uses mode `0700`; each file uses `0600`. Preserve these files and put a protected copy in the owner's password manager. Secret values must stay out of source, assets, command arguments, CI, and logs.
 
 Publication waits for task review, ponytail review, and final branch review. After those reviews, confirm the account and the absence of a conflicting hostname assignment. Read the installed Wrangler help before remote commands. Apply only this app's pending migrations, then deploy code and secrets together:
 
