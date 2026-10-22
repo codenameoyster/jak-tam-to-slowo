@@ -93,7 +93,7 @@ test('refills once at three unanswered cards, keeps the active card in the cap, 
 	await expect(page.getByTestId('study-remaining')).toHaveText('В очереди: 10');
 	await expect(page.getByText('Это наш дом.', { exact: true })).toBeVisible();
 	await expect(page.getByLabel('Ответ по-польски')).toHaveAttribute('lang', 'pl');
-	await page.screenshot({ path: `.wrangler/playwright/study-answer-${testInfo.project.name}.png`, fullPage: true });
+	await page.screenshot({ path: `.wrangler/playwright/study-answer-${testInfo.project.name}-${page.viewportSize()!.width}.png`, fullPage: true, animations: 'disabled', scale: 'css' });
 	for (const card of cards.slice(0, 7)) {
 		await answer(page, card.pl);
 		expect(refills).toHaveLength(0);
@@ -323,7 +323,7 @@ for (const scenario of [
 	expect(stored).toMatchObject({ cardId: card.id, progress: { version: 1, stage: scenario.stage } });
 	expect(await page.evaluate(key => sessionStorage.getItem(key), `study-draft:${USER_A.id}`)).toBeNull();
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-	await page.screenshot({ path: `.wrangler/playwright/study-feedback-${testInfo.project.name}-${scenario.direction}-${scenario.action}.png`, fullPage: true });
+	await page.screenshot({ path: `.wrangler/playwright/study-feedback-${testInfo.project.name}-${page.viewportSize()!.width}-${scenario.direction}-${scenario.action}.png`, fullPage: true, animations: 'disabled', scale: 'css' });
 	await page.getByRole('button', { name: 'Дальше', exact: true }).focus();
 	await page.keyboard.press('Enter');
 	await expect(page.getByText('На сегодня всё готово.', { exact: true })).toBeVisible();

@@ -97,17 +97,17 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy, onExpired }: { 
 		finally { setBusy(false); }
 	}
 
-	return <section className="card" aria-labelledby="add-title" aria-busy={busy}>
+	return <section className="page add" aria-labelledby="add-title" aria-busy={busy}>
 		<h1 id="add-title">Добавить слово</h1>
 		<p className="intro">Введите или продиктуйте слово по-польски или по-русски.</p>
-		<p className="intro">Подготовьте карточку, проверьте текст и сохраните её в общей коллекции.</p>
+		<p className="hint">Подготовьте карточку, проверьте текст и сохраните её в общей коллекции.</p>
 		<form onSubmit={event => { event.preventDefault(); void generate(); }}>
 			<fieldset disabled={locked}>
 				<label htmlFor="draft-text">Слово или выражение</label>
 				<input ref={input} id="draft-text" value={draft?.text ?? ''} maxLength={200} required onChange={event => change({ text: event.target.value, meaningRu: undefined, choices: [], card: undefined })} />
 			</fieldset>
 			<Dictation key={dictationId} language="auto" disabled={locked} onExpired={onExpired} onText={text => { if (input.current) change({ text: dictatedValue(input.current, text), meaningRu: undefined, choices: [], card: undefined }); }} />
-			<button disabled={locked || !query}>Подготовить карточку</button>
+			<button className="primary" disabled={locked || !query}>Подготовить карточку</button>
 		</form>
 		{searchError && <p className="hint" role="status">{searchError}</p>}
 		{!!matches.length && <aside aria-label="Похожие слова">

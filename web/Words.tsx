@@ -70,7 +70,7 @@ export function Words({ userId, onExpired, initialCard = null }: { userId: strin
 
 	function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); void save(); }
 
-	return <section className="card" aria-labelledby="words-title" aria-busy={busy}>
+	return <section className="page words" aria-labelledby="words-title" aria-busy={busy}>
 		<h1 id="words-title">Слова</h1>
 		{edit ? <>
 			<p>Изменения видны обоим ученикам.</p>

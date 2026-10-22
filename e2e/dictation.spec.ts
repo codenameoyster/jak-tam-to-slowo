@@ -30,7 +30,7 @@ async function media(page: Page, options: { supported?: string[]; denied?: boole
 			});
 			return { getTracks: () => tracks };
 		}
-		Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { value: async () => {
+		Object.defineProperty(Object.getPrototypeOf(navigator.mediaDevices), 'getUserMedia', { value: async () => {
 			state.requests++;
 			if (options.denied) throw new DOMException('Denied', 'NotAllowedError');
 			if (options.delayed) return new Promise(resolve => { state.grant = () => resolve(stream()); });
@@ -93,7 +93,7 @@ test.afterEach(async ({ page }) => {
 async function start(page: Page) {
 	await expect(page.getByRole('button', { name: 'Диктовать', exact: true })).toBeVisible();
 	await page.getByRole('button', { name: 'Диктовать', exact: true }).click();
-	await expect(page.getByRole('button', { name: 'Завершить запись', exact: true })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Остановить запись', exact: true })).toBeVisible();
 }
 
 for (const scenario of [
@@ -110,13 +110,13 @@ for (const scenario of [
 	if (scenario.screen === 'add') await page.getByRole('button', { name: 'Добавить', exact: true }).click();
 	const input = page.getByLabel(scenario.screen === 'add' ? 'Слово или выражение' : 'Ответ по-польски');
 	await start(page);
-	await page.getByRole('button', { name: 'Завершить запись', exact: true }).click();
+	await page.getByRole('button', { name: 'Остановить запись', exact: true }).click();
 	await expect(input).toHaveValue(scenario.initial);
 	await input.selectText();
 	const received = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
 	await page.route('**/api/dictation', async route => { received.resolve(); await release.promise; await route.fulfill({ json: { text: scenario.transcript } }); });
 	await start(page);
-	await page.getByRole('button', { name: 'Завершить запись', exact: true }).click();
+	await page.getByRole('button', { name: 'Остановить запись', exact: true }).click();
 	await received.promise;
 	try {
 		await expect(input).toBeEnabled();
@@ -153,7 +153,7 @@ for (const scenario of [
 	await start(page);
 	await input.fill('typed while recording');
 	const uploaded = page.waitForResponse(response => response.url().endsWith('/api/dictation'));
-	await page.getByRole('button', { name: 'Завершить запись', exact: true }).click();
+	await page.getByRole('button', { name: 'Остановить запись', exact: true }).click();
 	const response = await uploaded;
 	expect(await page.evaluate(() => window.audioTest.upload)).toEqual({ fields: ['clip', 'language'], language: scenario.language, type: scenario.type, bytes: scenario.bytes });
 	expect(response.status()).toBe(200);
@@ -200,7 +200,7 @@ test('keeps an overlong dictated Study answer editable across reload until it is
 	const typed = 'слово '.repeat(83), combined = `${typed} слово`;
 	await input.fill(typed);
 	await start(page);
-	await page.getByRole('button', { name: 'Завершить запись', exact: true }).click();
+	await page.getByRole('button', { name: 'Остановить запись', exact: true }).click();
 	await expect(input).toHaveValue(combined);
 	await page.getByRole('button', { name: 'Проверить', exact: true }).click();
 	await expect(page.getByRole('alert')).toBeVisible();
@@ -281,8 +281,8 @@ for (const scenario of [
 	await expect(page.getByRole('button', { name: 'Диктовать', exact: true })).toBeVisible();
 	await page.getByRole('button', { name: 'Диктовать', exact: true }).click();
 	if (scenario.event) {
-		await expect(page.getByRole('button', { name: 'Завершить запись', exact: true })).toBeVisible();
-		if (scenario.event === 'finish') await page.getByRole('button', { name: 'Завершить запись', exact: true }).click();
+		await expect(page.getByRole('button', { name: 'Остановить запись', exact: true })).toBeVisible();
+		if (scenario.event === 'finish') await page.getByRole('button', { name: 'Остановить запись', exact: true }).click();
 		else await page.evaluate(event => { if (event === 'error') window.audioTest.fail(); else window.audioTest.oversize(); }, scenario.event);
 	}
 	await expect(page.getByRole('alert')).toContainText(scenario.message);
@@ -312,7 +312,7 @@ for (const scenario of [
 	const received = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
 	await page.route('**/api/dictation', async route => { received.resolve(); await release.promise; await route.fulfill({ json: { text: 'late transcript' } }); });
 	await start(page);
-	await page.getByRole('button', { name: 'Завершить запись', exact: true }).click();
+	await page.getByRole('button', { name: 'Остановить запись', exact: true }).click();
 	await received.promise;
 	try {
 		if (scenario.change === 'discard') await page.getByRole('button', { name: 'Удалить черновик', exact: true }).click();
@@ -350,11 +350,213 @@ test('keeps text editable after a transcription service error', async ({ page })
 	await page.goto('/');
 	await page.getByLabel('Ответ по-польски').fill('typed');
 	await start(page);
-	await page.getByRole('button', { name: 'Завершить запись', exact: true }).click();
+	await page.getByRole('button', { name: 'Остановить запись', exact: true }).click();
 	await expect(page.getByRole('alert')).toContainText('Повторите запись');
 	await expect(page.getByLabel('Ответ по-польски')).toHaveValue('typed');
 	await page.getByLabel('Ответ по-польски').fill('corrected');
 	expect(await page.evaluate(() => window.audioTest.activeTracks)).toBe(0);
+});
+
+test.describe('phone interface', () => {
+	test.use({ hasTouch: true });
+
+	async function targets(page: Page) {
+		expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+		expect(await page.locator('input, textarea, select').evaluateAll(elements => elements.filter(element => parseFloat(getComputedStyle(element).fontSize) < 16).map(element => element.id))).toEqual([]);
+		expect(await page.locator('button, input, textarea, select, a[href]').evaluateAll(elements => elements.flatMap(element => {
+			const rect = element.getBoundingClientRect();
+			return rect.width && rect.height && (rect.width < 44 || rect.height < 44) ? [{ text: element.getAttribute('aria-label') ?? element.textContent, width: rect.width, height: rect.height }] : [];
+		}))).toEqual([]);
+	}
+
+	for (const scenario of [
+		{ name: '390 portrait', width: 390, height: 844, large: false },
+		{ name: '320 portrait', width: 320, height: 568, large: false },
+		{ name: 'landscape', width: 844, height: 390, large: false },
+		{ name: '320 large text', width: 320, height: 844, large: true },
+		{ name: 'desktop', width: 1280, height: 900, large: false },
+	]) test(`keeps navigation and actions reachable at ${scenario.name}`, async ({ page }, testInfo) => {
+		await page.setViewportSize(scenario);
+		await media(page);
+		await page.goto('/');
+		const input = page.getByLabel('Ответ по-польски');
+		await expect(input).toBeEnabled();
+		await expect.soft(input).not.toBeFocused();
+		if (scenario.large) await page.addStyleTag({ content: ':root { font-size: 20px; }' });
+		const nav = page.getByRole('navigation', { name: 'Разделы' });
+		const mic = page.getByRole('button', { name: 'Диктовать', exact: true });
+		const navigation = (await nav.boundingBox())!, microphone = (await mic.boundingBox())!;
+		expect.soft(navigation.y).toBeGreaterThan(scenario.height - 130);
+		expect(navigation.y + navigation.height).toBeLessThanOrEqual(scenario.height);
+		expect.soft(microphone.width).toBeGreaterThanOrEqual(60);
+		expect.soft(microphone.width).toBeLessThanOrEqual(64);
+		expect.soft(microphone.height).toBe(microphone.width);
+		expect.soft(microphone.x).toBeGreaterThan(scenario.width / 2);
+		expect.soft(microphone.y + microphone.height).toBeLessThan(navigation.y);
+		if (scenario.height >= 568 && !scenario.large) {
+			const field = (await input.boundingBox())!;
+			expect(field.y + field.height + 8).toBeLessThanOrEqual(microphone.y);
+		}
+		const term = (await page.getByTestId('study-term').boundingBox())!;
+		expect(term.y + term.height).toBeLessThan(navigation.y);
+		await targets(page);
+		const shot = (name: string) => page.screenshot({ path: `.wrangler/playwright/interface-${testInfo.project.name}-${scenario.width}-${scenario.height}${scenario.large ? '-large' : ''}-${name}.png`, animations: 'disabled', scale: 'css' });
+		await shot('study');
+		await page.getByTestId('study-term').evaluate(element => { element.textContent = 'Достопримечательность'.repeat(3); });
+		await targets(page);
+		await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+		expect((await nav.boundingBox())!.y).toBe(navigation.y);
+		await page.getByRole('button', { name: 'Добавить', exact: true }).tap();
+		await expect(page.getByLabel('Слово или выражение')).toBeVisible();
+		await page.evaluate(() => window.scrollTo(0, 0));
+		await targets(page);
+		await shot('add');
+		await page.getByRole('button', { name: 'Слова', exact: true }).tap();
+		await page.getByRole('button', { name: 'Słowo / Слово', exact: true }).waitFor();
+		await targets(page);
+		await shot('words');
+		await page.getByRole('button', { name: 'Słowo / Слово', exact: true }).tap();
+		await expect(page.getByLabel('По-польски', { exact: true })).toBeVisible();
+		await targets(page);
+		await shot('edit');
+		await page.getByRole('button', { name: 'Отменить правки', exact: true }).scrollIntoViewIfNeeded();
+		const cancel = (await page.getByRole('button', { name: 'Отменить правки', exact: true }).boundingBox())!;
+		expect(cancel.y + cancel.height).toBeLessThan(navigation.y);
+		await shot('edit-actions');
+		await page.getByRole('button', { name: 'Настройки', exact: true }).tap();
+		await expect(page.getByText(/ChatGPT (не )?подключён\./)).toBeVisible();
+		await page.evaluate(() => window.scrollTo(0, 0));
+		await targets(page);
+		await shot('settings');
+		await page.getByRole('button', { name: 'Учить', exact: true }).tap();
+		await page.getByRole('button', { name: 'Показать ответ', exact: true }).tap();
+		await expect(page.getByTestId('study-correction')).toBeVisible();
+		await targets(page);
+		await page.evaluate(() => window.scrollTo(0, 0));
+		await shot('feedback');
+		await page.getByRole('button', { name: 'Выйти', exact: true }).tap();
+		await expect(page.getByRole('button', { name: 'Войти', exact: true })).toBeVisible();
+		await targets(page);
+		await shot('login');
+	});
+
+	for (const scenario of [
+		{ name: 'Add', label: 'Слово или выражение', submit: 'Подготовить карточку', endpoint: '/api/cards/draft', expected: { text: 'To źle słowo.', language: 'auto' } },
+		{ name: 'Study', label: 'Ответ по-польски', submit: 'Проверить', endpoint: '/api/reviews', expected: { answer: 'To źle słowo.', direction: 'ru-pl', action: 'answer' } },
+	]) test(`preserves the current selection through a touch retry in ${scenario.name}`, async ({ page }) => {
+		await media(page);
+		await page.route('**/api/dictation', route => route.fulfill({ json: { text: 'Żyla' } }));
+		await page.goto('/');
+		if (scenario.name === 'Add') await page.getByRole('button', { name: 'Добавить', exact: true }).tap();
+		const input = page.getByLabel(scenario.label);
+		await page.getByRole('button', { name: 'Диктовать', exact: true }).tap();
+		await page.getByRole('button', { name: 'Остановить запись', exact: true }).tap();
+		await expect(input).toHaveValue('Żyla');
+		await input.tap();
+		await input.selectText();
+		const received = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+		await page.route('**/api/dictation', async route => { received.resolve(); await release.promise; await route.fulfill({ json: { text: 'źle' } }); });
+		await page.getByRole('button', { name: 'Диктовать', exact: true }).tap();
+		expect(await input.evaluate(field => [(field as HTMLInputElement).selectionStart, (field as HTMLInputElement).selectionEnd])).toEqual([0, 4]);
+		await page.getByRole('button', { name: 'Остановить запись', exact: true }).tap();
+		await received.promise;
+		try {
+			await input.tap();
+			await input.fill('To Żyla słowo.');
+			await input.evaluate(field => (field as HTMLInputElement).setSelectionRange(3, 7));
+		} finally { release.resolve(); }
+		await expect(input).toHaveValue('To źle słowo.');
+		const submitted = page.waitForRequest(request => request.url().endsWith(scenario.endpoint));
+		await page.getByRole('button', { name: scenario.submit, exact: true }).tap();
+		expect((await submitted).postDataJSON()).toMatchObject(scenario.expected);
+	});
+
+	for (const scenario of [
+		{ name: 'Add resize', screen: 'Добавить', label: 'Слово или выражение', width: 390, height: 420, offset: 0, event: 'resize' },
+		{ name: 'Study resize and scroll', screen: 'Учить', label: 'Ответ по-польски', width: 320, height: 390, offset: 48, event: 'scroll' },
+	]) test(`keeps the field, mic, status and cancel above the keyboard for ${scenario.name}`, async ({ page }, testInfo) => {
+		await page.setViewportSize({ width: scenario.width, height: 844 });
+		await media(page, { delayed: true });
+		await page.goto('/');
+		await page.getByRole('button', { name: scenario.screen, exact: true }).tap();
+		const input = page.getByLabel(scenario.label), nav = page.getByRole('navigation', { name: 'Разделы' });
+		await input.tap();
+		await page.evaluate(() => {
+			Object.defineProperties(window.visualViewport!, { height: { configurable: true, value: 420 }, offsetTop: { configurable: true, value: 0 } });
+			window.visualViewport!.dispatchEvent(new Event('resize'));
+		});
+		await expect(nav).toBeHidden();
+		await page.evaluate(scenario => {
+			Object.defineProperties(window.visualViewport!, { height: { configurable: true, value: scenario.height }, offsetTop: { configurable: true, value: scenario.offset } });
+			window.visualViewport!.dispatchEvent(new Event(scenario.event));
+		}, scenario);
+		const geometry = async () => {
+			await expect.poll(async () => {
+				const mic = (await page.getByRole('button', { name: /^(Диктовать|Остановить запись)$/ }).boundingBox())!;
+				return mic.y + mic.height;
+			}).toBeLessThanOrEqual(scenario.height + scenario.offset);
+			const field = (await input.boundingBox())!, controls = (await page.locator('.dictation').boundingBox())!;
+			expect(controls.y).toBeGreaterThanOrEqual(scenario.offset);
+			expect(field.y).toBeGreaterThanOrEqual(scenario.offset);
+			expect(field.y + field.height).toBeLessThanOrEqual(controls.y);
+			for (const control of await page.locator('.dictation button, .dictation [aria-live], .dictation [role="alert"]').all()) {
+				if (!await control.isVisible()) continue;
+				const rect = (await control.boundingBox())!;
+				expect(rect.y).toBeGreaterThanOrEqual(scenario.offset);
+				expect(rect.y + rect.height).toBeLessThanOrEqual(scenario.height + scenario.offset);
+			}
+		};
+		await geometry();
+		await page.getByRole('button', { name: 'Диктовать', exact: true }).tap();
+		await expect(page.getByText('Разрешите доступ к микрофону.', { exact: true })).toBeVisible();
+		await geometry();
+		await page.evaluate(() => window.audioTest.grant());
+		await expect(page.getByRole('button', { name: 'Остановить запись', exact: true })).toBeVisible();
+		await geometry();
+		await targets(page);
+		await page.screenshot({ path: `.wrangler/playwright/interface-${testInfo.project.name}-${scenario.width}-keyboard-recording.png`, animations: 'disabled', scale: 'css' });
+		const received = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+		await page.route('**/api/dictation', async route => { received.resolve(); await release.promise; await route.fulfill({ json: { text: 'late' } }); });
+		await page.getByRole('button', { name: 'Остановить запись', exact: true }).tap();
+		await received.promise;
+		try {
+			await expect(page.getByText('Распознаём речь…', { exact: true })).toBeVisible();
+			await geometry();
+			await page.getByRole('button', { name: 'Отменить диктовку', exact: true }).tap();
+		} finally { release.resolve(); }
+		await expect(page.getByRole('button', { name: 'Диктовать', exact: true })).toBeEnabled();
+		await expect(input).toHaveValue('');
+		await page.evaluate(() => {
+			(document.activeElement as HTMLElement).blur();
+			Object.defineProperties(window.visualViewport!, { height: { configurable: true, value: 844 }, offsetTop: { configurable: true, value: 0 } });
+			window.visualViewport!.dispatchEvent(new Event('resize'));
+		});
+		await expect(nav).toBeVisible();
+		expect((await nav.boundingBox())!.y).toBeGreaterThan(720);
+		expect((await page.getByRole('button', { name: 'Диктовать', exact: true }).boundingBox())!.y).toBeGreaterThan(600);
+		await page.evaluate(() => {
+			Object.defineProperties(window.visualViewport!, { height: { configurable: true, value: 422 }, scale: { configurable: true, value: 2 } });
+			window.visualViewport!.dispatchEvent(new Event('resize'));
+		});
+		await expect(nav).toBeVisible();
+	});
+
+	test('shows recording cancellation and a readable microphone error', async ({ page }, testInfo) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		await media(page);
+		await page.goto('/');
+		await page.getByRole('button', { name: 'Диктовать', exact: true }).tap();
+		await expect(page.getByRole('button', { name: 'Остановить запись', exact: true })).toBeVisible();
+		await page.screenshot({ path: `.wrangler/playwright/interface-${testInfo.project.name}-390-recording.png`, animations: 'disabled', scale: 'css' });
+		await page.getByRole('button', { name: 'Отменить диктовку', exact: true }).tap();
+		await expect(page.getByRole('button', { name: 'Диктовать', exact: true })).toBeEnabled();
+		expect(await page.evaluate(() => window.audioTest.activeTracks)).toBe(0);
+		await page.getByRole('button', { name: 'Диктовать', exact: true }).tap();
+		await page.evaluate(() => window.audioTest.fail());
+		await expect(page.getByRole('alert')).toContainText('Не удалось записать звук');
+		await targets(page);
+		await page.screenshot({ path: `.wrangler/playwright/interface-${testInfo.project.name}-390-microphone-error.png`, animations: 'disabled', scale: 'css' });
+	});
 });
 
 for (const scenario of [
@@ -367,7 +569,7 @@ for (const scenario of [
 	await page.getByLabel(scenario.label).fill('typed');
 	await start(page);
 	expect((await page.request.delete('/api/session', { headers })).status()).toBe(204);
-	await page.getByRole('button', { name: 'Завершить запись', exact: true }).click();
+	await page.getByRole('button', { name: 'Остановить запись', exact: true }).click();
 	await expect(page.getByRole('button', { name: 'Войти', exact: true })).toBeVisible();
 	expect(await page.evaluate(key => sessionStorage.getItem(key), `${scenario.key}:${USER_A.id}`)).toContain('typed');
 	expect(await page.evaluate(() => window.audioTest.activeTracks)).toBe(0);

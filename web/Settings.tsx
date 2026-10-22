@@ -40,12 +40,13 @@ export function Settings() {
 		setNotice('Модель сохранена.');
 	}); }
 
-	return <section className="card" aria-labelledby="settings-title" aria-busy={busy}>
+	return <section className="page settings" aria-labelledby="settings-title" aria-busy={busy}>
 		<h1 id="settings-title">Настройки</h1>
+		<div className="settings-group">
 		<h2>Общий ChatGPT</h2>
 		<p>Оба ученика используют подписку владельца. Тексты карточек и ответы отправляются в OpenAI.</p>
 		{connection && <>
-			<p>{connection.connected ? 'ChatGPT подключён.' : 'ChatGPT не подключён.'}</p>
+			<p className={`connection-state${connection.connected ? ' connected' : ''}`}>{connection.connected ? 'ChatGPT подключён.' : 'ChatGPT не подключён.'}</p>
 			{connection.accountLabel && <p className="hint">{connection.accountLabel}</p>}
 			{connection.canManage ? <>
 				<p className="hint">В Plus общий лимит за пять часов действует для всех подключённых приложений. Этот лимит не действует для Pro. Возможны другие ограничения.</p>
@@ -77,5 +78,6 @@ export function Settings() {
 		{error && <p className="error" role="alert">{error}</p>}
 		{error && !connection && <button disabled={busy} onClick={() => void load()}>Повторить</button>}
 		{notice && <p role="status">{notice}</p>}
+		</div>
 	</section>;
 }

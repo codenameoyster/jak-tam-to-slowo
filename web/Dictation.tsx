@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { DICTATION_MAX_BYTES, DICTATION_TYPES, type DictationLanguage } from '../shared/dictation';
 import { api, ApiError } from './api';
+import { Icon } from './Icon';
 
 interface Recording {
 	controller: AbortController;
@@ -120,12 +121,15 @@ export function Dictation({ language, onText, disabled = false, onExpired }: {
 		setState('transcribing');
 	}
 
-	return <div className="dictation">
-		<div className="dictation-actions">
-			{state === 'recording' ? <button type="button" onClick={finish}>Завершить запись</button> : <button type="button" disabled={disabled || state !== 'idle'} onClick={() => void start()}>Диктовать</button>}
-			{state !== 'idle' && <button type="button" onClick={cancel}>Отменить диктовку</button>}
+	return <>
+		<p className="hint dictation-hint" hidden={state !== 'idle' || !!error}>После диктовки проверьте и измените текст в поле.</p>
+		<div className="dictation" data-state={state}>
+			<div className="dictation-status" hidden={state === 'idle' && !error}>
+				<p className="hint" aria-live="polite">{state === 'recording' ? 'Идёт запись. Не более 30 секунд.' : state === 'requesting' ? 'Разрешите доступ к микрофону.' : state === 'transcribing' ? 'Распознаём речь…' : ''}</p>
+				{error && <p className="error" role="alert">{error}</p>}
+				{state !== 'idle' && <button className="quiet" type="button" aria-label="Отменить диктовку" onMouseDown={event => event.preventDefault()} onClick={cancel}>Отменить</button>}
+			</div>
+			<button className="mic" type="button" aria-label={state === 'recording' ? 'Остановить запись' : 'Диктовать'} disabled={disabled || state === 'requesting' || state === 'transcribing'} onMouseDown={event => event.preventDefault()} onClick={() => state === 'recording' ? finish() : void start()}><Icon name={state === 'recording' ? 'stop' : 'mic'} /></button>
 		</div>
-		<p className="hint" aria-live="polite">{state === 'recording' ? 'Идёт запись. Не более 30 секунд.' : state === 'requesting' ? 'Разрешите доступ к микрофону.' : state === 'transcribing' ? 'Распознаём речь…' : 'После диктовки проверьте и измените текст в поле.'}</p>
-		{error && <p className="error" role="alert">{error}</p>}
-	</div>;
+	</>;
 }

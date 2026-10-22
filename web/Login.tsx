@@ -18,7 +18,7 @@ export function Login({ onLogin }: { onLogin: (user: User) => void }) {
 		} finally { setBusy(false); }
 	}
 
-	return <section className="card" aria-labelledby="login-title">
+	return <section className="login" aria-labelledby="login-title">
 		<h1 id="login-title">Польские слова</h1>
 		<p className="intro">Войдите в свой аккаунт, чтобы продолжить.</p>
 		<form onSubmit={submit}>

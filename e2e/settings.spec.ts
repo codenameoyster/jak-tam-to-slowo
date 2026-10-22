@@ -29,7 +29,7 @@ async function finish(page: Page, callback: URL) {
 	await page.getByRole('button', { name: 'Подключить', exact: true }).click();
 }
 
-test('shows shared status with owner-only controls and reports unconfirmed revocation', async ({ page, browser }) => {
+test('shows shared status with owner-only controls and reports unconfirmed revocation', async ({ page, browser }, testInfo) => {
 	await login(page);
 	await finish(page, await start(page, 'a'));
 	await expect(page.getByText('a@example.test', { exact: true })).toBeVisible();
@@ -57,7 +57,7 @@ test('shows shared status with owner-only controls and reports unconfirmed revoc
 	await expect(other.getByText('ChatGPT не подключён.', { exact: true })).toBeVisible();
 	await expect(other.getByText('Подключением управляет владелец. Ваша подписка ChatGPT не нужна.', { exact: true })).toBeVisible();
 	await expect(other.getByRole('button', { name: /Продолжить с ChatGPT|Подключить заново|Отключить/ })).toHaveCount(0);
-	await page.screenshot({ path: '.wrangler/playwright/settings-mobile.png', fullPage: true });
+	await page.screenshot({ path: `.wrangler/playwright/settings-${testInfo.project.name}-${page.viewportSize()!.width}.png`, fullPage: true, animations: 'disabled', scale: 'css' });
 	expect(await page.evaluate(() => ({ local: { ...localStorage }, session: { ...sessionStorage } }))).toEqual({ local: {}, session: {} });
 	await context.close();
 });

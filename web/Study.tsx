@@ -18,23 +18,23 @@ export function Study({ user, onDirection, onBusy, onExpired }: {
 	useEffect(() => { onBusy(study.busy); }, [study.busy, onBusy]);
 	useEffect(() => { if (study.expired) onExpired(); }, [study.expired, onExpired]);
 	useEffect(() => {
+		if (navigator.maxTouchPoints > 0 || matchMedia('(pointer: coarse)').matches) return;
 		if (study.state === 'answering') input.current?.focus();
 		if (study.state === 'feedback') nextButton.current?.focus();
 	}, [study.state, current?.id]);
 
-	return <section className="card study" aria-labelledby="study-title">
-		<h1 id="study-title">Учить слова</h1>
+	return <section className="page study" aria-labelledby="study-title">
+		<div className="page-heading"><h1 id="study-title">Учить слова</h1><p className="hint" data-testid="study-remaining">В очереди: {study.remaining}</p></div>
 		<div className="directions" role="group" aria-label="Направление перевода">
-			<button aria-label="RU -> PL" aria-pressed={polish} disabled={study.locked} onClick={() => void study.setDirection('ru-pl')}>{'RU -> PL'}</button>
-			<button aria-label="PL -> RU" aria-pressed={!polish} disabled={study.locked} onClick={() => void study.setDirection('pl-ru')}>{'PL -> RU'}</button>
+			<button aria-label="RU -> PL" aria-pressed={polish} disabled={study.locked} onClick={() => void study.setDirection('ru-pl')}>Русский <span aria-hidden="true">→</span> Польский</button>
+			<button aria-label="PL -> RU" aria-pressed={!polish} disabled={study.locked} onClick={() => void study.setDirection('pl-ru')}>Польский <span aria-hidden="true">→</span> Русский</button>
 		</div>
-		<p className="hint" data-testid="study-remaining">В очереди: {study.remaining}</p>
 		{study.busy && study.state !== 'checking' && <p role="status">Сохранение направления…</p>}
 		{study.state === 'loading' && <p role="status">Загрузка карточек…</p>}
-		{current && <>
+		{current && <div className="study-prompt">
 			<h2 className="study-term" data-testid="study-term" lang={polish ? 'ru' : 'pl'}>{polish ? current.ru : current.pl}</h2>
 			<p className="study-example" lang={polish ? 'ru' : 'pl'}>{polish ? current.exampleRu : current.examplePl}</p>
-		</>}
+		</div>}
 		{study.state !== 'feedback' && (current || study.locked) && <form onSubmit={event => { event.preventDefault(); void study.check(); }}>
 			<label htmlFor="study-answer">{polish ? 'Ответ по-польски' : 'Ответ по-русски'}</label>
 			<input ref={input} id="study-answer" lang={target} maxLength={500} autoComplete="off" value={study.answer} disabled={study.locked} onChange={event => study.setAnswer(event.target.value)} />

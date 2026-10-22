@@ -1,4 +1,4 @@
-import { defineConfig } from '@playwright/test';
+import { defineConfig, devices } from '@playwright/test';
 import { testBindings } from './test/fixtures';
 
 export default defineConfig({
@@ -10,6 +10,7 @@ export default defineConfig({
 	outputDir: '.wrangler/playwright/results',
 	reporter: [['list'], ['html', { outputFolder: '.wrangler/playwright/report', open: 'never' }]],
 	projects: [
+		{ name: 'iphone', testIgnore: /workflow\.spec\.ts/, use: { ...devices['iPhone 13'], browserName: 'webkit' } },
 		{ name: 'mobile', use: { viewport: { width: 390, height: 844 } } },
 		{ name: 'chromium', use: { browserName: 'chromium', viewport: { width: 1280, height: 900 } } },
 		{ name: 'firefox', testIgnore: /workflow\.spec\.ts/, use: { browserName: 'firefox', viewport: { width: 1280, height: 900 } } },

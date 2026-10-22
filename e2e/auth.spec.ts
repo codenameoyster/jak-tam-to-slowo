@@ -19,7 +19,7 @@ for (const scenario of [
 	expect(await response!.json()).toMatchObject({ code: 'unauthorized' });
 });
 
-test('keeps the account and direction after reload and revokes access at logout', async ({ page }) => {
+test('keeps the account and direction after reload and revokes access at logout', async ({ page }, testInfo) => {
 	await page.goto('/');
 	expect((await page.request.get('/api/session')).status()).toBe(401);
 	const stylesheet = await page.locator('link[rel="stylesheet"]').getAttribute('href');
@@ -36,7 +36,7 @@ test('keeps the account and direction after reload and revokes access at logout'
 	await page.reload();
 	await expect(page.getByText(USER_A.displayName, { exact: true })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'PL -> RU', exact: true })).toHaveAttribute('aria-pressed', 'true');
-	await page.screenshot({ path: '.wrangler/playwright/account-mobile.png', fullPage: true });
+	await page.screenshot({ path: `.wrangler/playwright/account-${testInfo.project.name}-${page.viewportSize()!.width}.png`, fullPage: true, animations: 'disabled', scale: 'css' });
 	await page.getByRole('button', { name: 'Выйти', exact: true }).click();
 	await expect(page.getByRole('button', { name: 'Войти', exact: true })).toBeVisible();
 	expect((await page.request.get('/api/session')).status()).toBe(401);
@@ -47,14 +47,14 @@ test('keeps the account and direction after reload and revokes access at logout'
 	await expect(page.getByRole('button', { name: 'RU -> PL', exact: true })).toHaveAttribute('aria-pressed', 'true');
 });
 
-test('shows a failed sign-in and allows another attempt', async ({ page }) => {
+test('shows a failed sign-in and allows another attempt', async ({ page }, testInfo) => {
 	await page.goto('/');
 	await page.getByLabel('Имя пользователя').fill(USER_A.username);
 	await page.getByLabel('Пароль', { exact: true }).fill('wrong-password');
 	await page.getByRole('button', { name: 'Войти', exact: true }).click();
 	await expect(page.getByRole('alert')).toContainText('Неверное имя пользователя или пароль.');
 	await expect(page.getByRole('button', { name: 'Войти', exact: true })).toBeEnabled();
-	await page.screenshot({ path: '.wrangler/playwright/login-mobile.png', fullPage: true });
+	await page.screenshot({ path: `.wrangler/playwright/login-error-${testInfo.project.name}-${page.viewportSize()!.width}.png`, fullPage: true, animations: 'disabled', scale: 'css' });
 });
 
 test('generates random passwords and retains account IDs during rotation', async ({}, testInfo) => {

@@ -169,7 +169,7 @@ test('keeps an uncertain Save retry-only across reload and opens confirmed edits
 	expect(updated.cards.find(card => card.id === savedId)).toMatchObject({ examplePl: 'Znam to słowo.', version: 2 });
 });
 
-test('recovers meaning choices and the selected meaning until logout independently of study direction', async ({ page }) => {
+test('recovers meaning choices and the selected meaning until logout independently of study direction', async ({ page }, testInfo) => {
 	await page.getByRole('button', { name: 'PL -> RU', exact: true }).click();
 	await page.getByRole('button', { name: 'Слова', exact: true }).click();
 	await page.getByRole('button', { name: 'Добавить', exact: true }).click();
@@ -198,7 +198,7 @@ test('recovers meaning choices and the selected meaning until logout independent
 	await page.getByRole('button', { name: 'Добавить', exact: true }).click();
 	await expect(page.getByLabel('По-польски', { exact: true })).toHaveValue('Cebula');
 	await expect(page.getByText('Выбрано значение: Овощ', { exact: true })).toBeVisible();
-	await page.screenshot({ path: '.wrangler/playwright/add-preview-mobile.png', fullPage: true });
+	await page.screenshot({ path: `.wrangler/playwright/add-preview-${testInfo.project.name}-${page.viewportSize()!.width}.png`, fullPage: true, animations: 'disabled', scale: 'css' });
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 	await page.getByRole('button', { name: 'Выйти', exact: true }).click();
 	await loginForm(page, USER_B);

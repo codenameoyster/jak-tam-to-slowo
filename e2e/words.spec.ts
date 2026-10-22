@@ -94,7 +94,7 @@ for (const scenario of [
 	await expect(page.getByLabel('Пример по-польски')).toHaveValue('To nasz dom.');
 });
 
-test('keeps an unsaved shared edit after another learner saves first', async ({ page, playwright, baseURL }) => {
+test('keeps an unsaved shared edit after another learner saves first', async ({ page, playwright, baseURL }, testInfo) => {
 	const headers = { Origin: baseURL! };
 	expect((await page.request.post('/api/session', { headers, data: { username: USER_A.username, password: USER_A.password } })).status()).toBe(200);
 	expect((await page.request.post('/api/cards', { headers, data: { ...CARD_A, id: cardId } })).status()).toBe(201);
@@ -119,7 +119,7 @@ test('keeps an unsaved shared edit after another learner saves first', async ({ 
 		await expect(page.getByRole('button', { name: 'Сохранить', exact: true })).toBeEnabled();
 		const list = await (await other.get('/api/cards?q=Словечко')).json();
 		expect(list.cards).toMatchObject([{ id, ru: 'Словечко', version: 2 }]);
-		await page.screenshot({ path: '.wrangler/playwright/words-conflict-mobile.png', fullPage: true });
+		await page.screenshot({ path: `.wrangler/playwright/words-conflict-${testInfo.project.name}-${page.viewportSize()!.width}.png`, fullPage: true, animations: 'disabled', scale: 'css' });
 		await page.getByRole('button', { name: 'Отменить правки', exact: true }).click();
 		await page.getByLabel('Поиск слов').fill('Словечко');
 		await page.getByRole('button', { name: 'Найти', exact: true }).click();
