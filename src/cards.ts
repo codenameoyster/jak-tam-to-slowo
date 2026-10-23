@@ -102,6 +102,6 @@ export async function handleCards(request: Request, env: Env, user: User): Promi
 			.bind(content.pl, content.ru, content.examplePl, content.exampleRu, content.meaningRu,
 				JSON.stringify(content.alternativesPl), JSON.stringify(content.alternativesRu), searchKey(content.pl), searchKey(content.ru), Date.now(), id, version).first<CardRow>();
 	}
-	if (!row) throw new HttpError(409, 'version_conflict', 'Карточка уже изменена. Ваши правки не сохранены. Скопируйте текст и откройте карточку снова.');
+	if (!row) throw new HttpError(409, 'version_conflict', 'Карточка уже изменена, возможно вашим прошлым сохранением. Скопируйте текст, откройте карточку снова и проверьте его.');
 	return Response.json(fromRow(row));
 }

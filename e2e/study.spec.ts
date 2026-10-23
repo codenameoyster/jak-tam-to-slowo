@@ -563,3 +563,20 @@ test('keeps input after a lost direction response and retries the direction save
 	await expect(page.getByLabel('PL -> RU', { exact: true })).toHaveAttribute('aria-pressed', 'true');
 	await expect(page.getByTestId('study-term')).toHaveText('Dom');
 });
+
+test('does not send an empty or space-only answer when Enter is pressed after Дальше', async ({ page, hasTouch }) => {
+	test.skip(hasTouch, 'Touch devices do not focus the answer field.');
+	const cards = await seed(page, 2);
+	await page.goto('/');
+	await answer(page, cards[0].pl);
+	await expect(page.getByRole('button', { name: 'Дальше', exact: true })).toBeFocused();
+	await page.keyboard.press('Enter');
+	await expect(page.getByLabel('Ответ по-польски')).toBeFocused();
+	const saved = page.waitForResponse(response => response.url().endsWith('/api/reviews'));
+	await page.keyboard.press('Enter');
+	await page.keyboard.type(' ');
+	await page.keyboard.press('Enter');
+	await page.keyboard.type(cards[1].pl);
+	await page.keyboard.press('Enter');
+	expect((await saved).request().postDataJSON()).toMatchObject({ action: 'answer', answer: ` ${cards[1].pl}` });
+});
