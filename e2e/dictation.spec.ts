@@ -372,6 +372,7 @@ test.describe('phone interface', () => {
 	for (const scenario of [
 		{ name: '390 portrait', width: 390, height: 844, large: false },
 		{ name: '320 portrait', width: 320, height: 568, large: false },
+		{ name: '320 portrait with wider heading', width: 320, height: 568, large: false, spaced: true },
 		{ name: 'landscape', width: 844, height: 390, large: false },
 		{ name: '320 large text', width: 320, height: 844, large: true },
 		{ name: 'desktop', width: 1280, height: 900, large: false },
@@ -383,6 +384,7 @@ test.describe('phone interface', () => {
 		await expect(input).toBeEnabled();
 		await expect.soft(input).not.toBeFocused();
 		if (scenario.large) await page.addStyleTag({ content: ':root { font-size: 20px; }' });
+		if (scenario.spaced) await page.addStyleTag({ content: '.page-heading h1 { letter-spacing: .12em; }' });
 		const nav = page.getByRole('navigation', { name: 'Разделы' });
 		const mic = page.getByRole('button', { name: 'Диктовать', exact: true });
 		const navigation = (await nav.boundingBox())!, microphone = (await mic.boundingBox())!;
@@ -400,7 +402,7 @@ test.describe('phone interface', () => {
 		const term = (await page.getByTestId('study-term').boundingBox())!;
 		expect(term.y + term.height).toBeLessThan(navigation.y);
 		await targets(page);
-		const shot = (name: string) => page.screenshot({ path: `.wrangler/playwright/interface-${testInfo.project.name}-${scenario.width}-${scenario.height}${scenario.large ? '-large' : ''}-${name}.png`, animations: 'disabled', scale: 'css' });
+		const shot = (name: string) => page.screenshot({ path: `.wrangler/playwright/interface-${testInfo.project.name}-${scenario.width}-${scenario.height}${scenario.large ? '-large' : ''}${scenario.spaced ? '-spaced' : ''}-${name}.png`, animations: 'disabled', scale: 'css' });
 		await shot('study');
 		await page.getByTestId('study-term').evaluate(element => { element.textContent = 'Достопримечательность'.repeat(3); });
 		await targets(page);
