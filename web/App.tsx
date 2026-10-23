@@ -92,7 +92,7 @@ export function App() {
 	}
 
 	return <main className={`app${user ? ' signed-in' : ''}`}>
-		<header className="brand"><span lang="pl">Jak tam to słowo?</span>{user && <div className="account"><span>{user.displayName}</span><button className="quiet" aria-label="Выйти" onClick={logout} disabled={busy}><Icon name="exit" /></button></div>}</header>
+		<header className="brand"><span className="app-icon" aria-hidden="true">Ł</span><span className="brand-name" lang="pl">Jak tam to słowo?</span>{user && <div className="account"><span className="avatar" aria-hidden="true">{user.displayName.slice(0, 1)}</span><span className="name">{user.displayName}</span><button className="quiet" aria-label="Выйти" onClick={logout} disabled={busy}><Icon name="exit" /></button></div>}</header>
 		{loading ? <p role="status">Загрузка…</p> : user ? <>
 			<nav className="tabs" aria-label="Разделы">
 				<button aria-pressed={screen === 'study'} disabled={busy} onClick={() => setScreen('study')}><Icon name="study" />Учить</button>

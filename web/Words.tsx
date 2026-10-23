@@ -87,9 +87,9 @@ export function Words({ userId, onBusy, initialCard = null }: { userId: string; 
 			</form>
 		</> : <>
 			<p className="intro">Общая коллекция польских и русских слов.</p>
-			<form onSubmit={event => { event.preventDefault(); void load(query); }}>
+			<form className="search" onSubmit={event => { event.preventDefault(); void load(query); }}>
 				<label htmlFor="word-search">Поиск слов</label>
-				<input id="word-search" type="search" maxLength={200} value={query} disabled={busy} onChange={event => setQuery(event.target.value)} />
+				<input id="word-search" type="search" placeholder="Поиск слов" maxLength={200} value={query} disabled={busy} onChange={event => setQuery(event.target.value)} />
 				<button disabled={busy}>Найти</button>
 			</form>
 			{error && <p className="error" role="alert">{error}</p>}

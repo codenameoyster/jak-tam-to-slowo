@@ -19,6 +19,7 @@ export function Login({ onLogin }: { onLogin: (user: User) => void }) {
 	}
 
 	return <section className="login" aria-labelledby="login-title">
+		<span className="app-icon" aria-hidden="true">Ł</span>
 		<h1 id="login-title">Польские слова</h1>
 		<p className="intro">Войдите в свой аккаунт, чтобы продолжить.</p>
 		<form onSubmit={submit}>

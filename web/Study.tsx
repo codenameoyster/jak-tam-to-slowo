@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { Direction, User } from '../shared/types';
 import { useStudy } from './useStudy';
 import { Dictation, dictatedValue } from './Dictation';
+import { Icon } from './Icon';
 
 export function Study({ user, onDirection, onBusy }: {
 	user: User; onDirection(direction: Direction): void; onBusy(busy: boolean): void;
@@ -46,7 +47,7 @@ export function Study({ user, onDirection, onBusy }: {
 		{study.state === 'checking' && <p role="status">Проверяем ответ…</p>}
 		{study.feedback && <>
 			<div className={`study-feedback ${study.feedback.grade}`} role="status" aria-atomic="true">
-				<h2>{grade}</h2>
+				<h2><span className="grade-icon" aria-hidden="true"><Icon name={study.feedback.grade} /></span>{grade}</h2>
 				<p className="study-correction" data-testid="study-correction" lang={target}>{study.feedback.correction}</p>
 				{current && <p className="study-example" lang={target}>{polish ? current.examplePl : current.exampleRu}</p>}
 				<p>{study.feedback.explanationRu}</p>
