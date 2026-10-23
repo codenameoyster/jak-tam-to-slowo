@@ -12,8 +12,8 @@ const input: ReviewInput = {
 	attemptId: '10000000-0000-4000-8000-000000000001', cardId: CARD_A.id,
 	cardVersion: 1, progressVersion: 0, direction: 'ru-pl', action: 'answer', answer: 'Słowo',
 };
-const correct: GradeResult = { grade: 'correct', correction: 'Słowo', explanationRu: 'Верно.' };
-const again: GradeResult = { grade: 'again', correction: 'Słowo', explanationRu: 'Повторите слово.' };
+const correct: GradeResult = { grade: 'correct', correction: 'Słowo', explanation: 'Dobrze.' };
+const again: GradeResult = { grade: 'again', correction: 'Słowo', explanation: 'Powtórz słowo.' };
 const firstResult: ReviewResult = {
 	...correct, attemptId: input.attemptId, cardId: CARD_A.id, direction: 'ru-pl', source: 'exact',
 	progress: { stage: 1, dueAt: now + 86_400_000, version: 1, lastReviewedAt: now },
@@ -174,4 +174,15 @@ it.each([
 	expect(await state()).toMatchObject([{ version: 1 }]);
 	expect(await reviews()).toHaveLength(1);
 	expect(JSON.parse(String((await reviews())[0].result_json))).toEqual(accepted[0].value);
+});
+
+it('replays a review stored before migration 0007 with the renamed explanation field', async () => {
+	const stored = { grade: 'correct', correction: 'Słowo', explanationRu: 'Верно.', attemptId: input.attemptId, cardId: CARD_A.id, direction: 'ru-pl', source: 'exact', progress: firstResult.progress };
+	await env.DB.prepare('INSERT INTO reviews (user_id, attempt_id, input_json, result_json) VALUES (?, ?, ?, ?)').bind(USER_A.id, input.attemptId,
+		JSON.stringify({ cardId: CARD_A.id, cardVersion: 1, progressVersion: 0, direction: 'ru-pl', action: 'answer', answer: 'Słowo' }), JSON.stringify(stored)).run();
+	const migration = env.TEST_MIGRATIONS.find(migration => migration.name === '0007_review_explanation.sql')!;
+	await env.DB.batch(migration.queries.map(query => env.DB.prepare(query)));
+	const response = await request('/api/reviews', { method: 'POST', cookie: await login(USER_A.id), body: input });
+	expect(response.status).toBe(200);
+	expect(await response.json()).toEqual({ ...firstResult, explanation: 'Верно.' });
 });

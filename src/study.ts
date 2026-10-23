@@ -5,7 +5,7 @@ import { HttpError, methods, uuidPattern } from './http';
 
 export async function getStudyBatch(env: Env, userId: string, direction: Direction, exclude: string[], limit: number, now: number): Promise<StudyBatch> {
 	if (exclude.length > 10 || exclude.some(id => !uuidPattern.test(id))) {
-		throw new HttpError(400, 'invalid_input', 'Укажите не больше десяти идентификаторов карточек.');
+		throw new HttpError(400, 'invalid_input', 'Podaj najwyżej dziesięć identyfikatorów fiszek.');
 	}
 	const excluded = JSON.stringify(exclude);
 	const [queue, future] = await env.DB.batch([
@@ -37,7 +37,7 @@ export async function handleStudy(request: Request, env: Env, user: User): Promi
 	const limitText = params.get('limit');
 	const limit = limitText === null ? 10 : Number(limitText);
 	if ((direction !== 'ru-pl' && direction !== 'pl-ru') || limitText?.trim() === '' || !Number.isSafeInteger(limit)) {
-		throw new HttpError(400, 'invalid_input', 'Проверьте направление и число карточек.');
+		throw new HttpError(400, 'invalid_input', 'Sprawdź kierunek i liczbę fiszek.');
 	}
 	const exclude = params.get('exclude');
 	return Response.json(await getStudyBatch(env, user.id, direction, exclude ? exclude.split(',') : [], limit, Date.now()));

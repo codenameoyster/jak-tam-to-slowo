@@ -83,7 +83,7 @@ it.each([
 	provider.messages = () => message({ result });
 	const response = await generate();
 	expect(response.status).toBe(503);
-	expect(await response.json()).toEqual({ code: 'ai_invalid_response', error: 'ИИ вернул неверную карточку. Попробуйте снова.' });
+	expect(await response.json()).toEqual({ code: 'ai_invalid_response', error: 'Model AI zwrócił nieprawidłową fiszkę. Spróbuj ponownie.' });
 	expect(await env.DB.prepare('SELECT count(*) AS n FROM cards').first('n')).toBe(0);
 });
 
@@ -98,7 +98,7 @@ it('returns 503 for a missing key before inference', async () => {
 	Reflect.deleteProperty(env, 'ANTHROPIC_API_KEY');
 	const result = await generate();
 	expect(result.status).toBe(503);
-	expect(await result.json()).toEqual({ code: 'ai_unavailable', error: 'ИИ не настроен. Попросите владельца проверить ключ API.' });
+	expect(await result.json()).toEqual({ code: 'ai_unavailable', error: 'Model AI nie jest skonfigurowany. Poproś właściciela o sprawdzenie klucza API.' });
 	expect(provider.calls).toHaveLength(0);
 });
 

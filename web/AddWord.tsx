@@ -33,7 +33,7 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy }: { userId: str
 			if (draft) sessionStorage.setItem(key, JSON.stringify(draft));
 			else sessionStorage.removeItem(key);
 			setStorageError('');
-		} catch { setStorageError('Браузер не сохранил черновик. Скопируйте текст перед закрытием страницы.'); }
+		} catch { setStorageError('Przeglądarka nie zapisała szkicu. Skopiuj tekst przed zamknięciem strony.'); }
 	}, [draft, key]);
 
 	useEffect(() => {
@@ -44,7 +44,7 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy }: { userId: str
 		const timer = setTimeout(() => {
 			void api<CardPage>(`/cards?${new URLSearchParams({ q: query })}`).then(page => {
 				if (!cancelled) setMatches(page.cards);
-			}).catch(() => { if (!cancelled) setSearchError('Не удалось найти похожие слова. Проверьте коллекцию в разделе «Слова».'); });
+			}).catch(() => { if (!cancelled) setSearchError('Nie udało się wyszukać podobnych słówek. Sprawdź kolekcję w sekcji „Słówka”.'); });
 		}, 250);
 		return () => { cancelled = true; clearTimeout(timer); };
 	}, [query]);
@@ -65,7 +65,7 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy }: { userId: str
 			const result = await api<DraftResult>('/cards/draft', { method: 'POST', body: JSON.stringify({ text: draft.text, meaningRu }) });
 			change(result.kind === 'draft' ? { card: result.card, choices: [] } : { choices: result.choices, card: undefined });
 		} catch (error) {
-			setError(error instanceof ApiError ? error.message : 'Нет связи с сервером. Черновик остался в форме. Попробуйте снова.');
+			setError(error instanceof ApiError ? error.message : 'Brak połączenia z serwerem. Szkic został w formularzu. Spróbuj ponownie.');
 		}
 		finally { setBusy(false); }
 	}
@@ -80,7 +80,7 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy }: { userId: str
 		try {
 			sessionStorage.setItem(key, JSON.stringify(pending));
 			setStorageError('');
-		} catch { setStorageError('Браузер не сохранил черновик. Освободите место и повторите сохранение.'); return; }
+		} catch { setStorageError('Przeglądarka nie zapisała szkicu. Zwolnij miejsce i zapisz ponownie.'); return; }
 		setDraft(pending);
 		setBusy(true);
 		setError('');
@@ -90,47 +90,47 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy }: { userId: str
 			setSaved(card);
 		} catch (error) {
 			if (error instanceof ApiError && (error.status === 400 || error.status === 413)) setDraft({ ...pending, submission: undefined });
-			setError(error instanceof ApiError ? error.message : 'Нет связи с сервером. Сохранение не подтверждено. Попробуйте сохранить ещё раз.');
+			setError(error instanceof ApiError ? error.message : 'Brak połączenia z serwerem. Zapis nie został potwierdzony. Spróbuj zapisać ponownie.');
 		}
 		finally { setBusy(false); }
 	}
 
 	return <section className="page add" aria-labelledby="add-title" aria-busy={busy}>
-		<h1 id="add-title">Добавить слово</h1>
-		<p className="intro">Введите или продиктуйте слово по-польски или по-русски.</p>
-		<p className="hint">Подготовьте карточку, проверьте текст и сохраните её в общей коллекции.</p>
+		<h1 id="add-title">Dodaj słówko</h1>
+		<p className="intro">Wpisz lub podyktuj słowo po polsku albo po rosyjsku.</p>
+		<p className="hint">Przygotuj fiszkę, sprawdź tekst i zapisz ją we wspólnej kolekcji.</p>
 		<form onSubmit={event => { event.preventDefault(); void generate(); }}>
 			<fieldset disabled={locked}>
-				<label htmlFor="draft-text">Слово или выражение</label>
+				<label htmlFor="draft-text">Słowo lub wyrażenie</label>
 				<input ref={input} id="draft-text" value={draft?.text ?? ''} maxLength={200} required onChange={event => change({ text: event.target.value, meaningRu: undefined, choices: [], card: undefined })} />
 			</fieldset>
 			{!draft?.card && <Dictation key={dictationId} language="auto" disabled={locked} onText={text => { if (input.current) change({ text: dictatedValue(input.current, text), meaningRu: undefined, choices: [], card: undefined }); }} />}
-			<button className="primary" disabled={locked || !query}>Подготовить карточку</button>
+			<button className="primary" disabled={locked || !query}>Przygotuj fiszkę</button>
 		</form>
 		{searchError && <p className="hint" role="status">{searchError}</p>}
-		{!!matches.length && <aside aria-label="Похожие слова">
-			<h2>Похожие слова</h2>
+		{!!matches.length && <aside aria-label="Podobne słówka">
+			<h2>Podobne słówka</h2>
 			<ul className="words-list">{matches.map(card => <li key={card.id}>
 				<a className="word" href="#words" aria-disabled={busy} onClick={event => { event.preventDefault(); if (!busy) onOpen(card); }}><span lang="pl">{card.pl}</span> / <span lang="ru">{card.ru}</span></a>
-				<p className="hint">{card.meaningRu}</p>
+				<p className="hint" lang="ru">{card.meaningRu}</p>
 			</li>)}</ul>
 		</aside>}
 		{!!draft?.choices.length && <fieldset className="meaning-choices" disabled={locked}>
-			<legend>Выберите значение</legend>
-			{draft.choices.map(meaning => <button key={meaning} onClick={() => void generate(meaning)}>{meaning}</button>)}
+			<legend>Wybierz znaczenie</legend>
+			{draft.choices.map(meaning => <button key={meaning} lang="ru" onClick={() => void generate(meaning)}>{meaning}</button>)}
 		</fieldset>}
-		{draft?.meaningRu && <p className="hint">Выбрано значение: {draft.meaningRu}</p>}
-		{draft?.submission && <p className="hint">Сохранение не подтверждено. Повторите сохранение. После подтверждения карточку можно изменить в разделе «Слова».</p>}
+		{draft?.meaningRu && <p className="hint">Wybrane znaczenie: <span lang="ru">{draft.meaningRu}</span></p>}
+		{draft?.submission && <p className="hint">Zapis nie został potwierdzony. Zapisz ponownie. Po potwierdzeniu fiszkę można zmienić w sekcji „Słówka”.</p>}
 		{draft?.card && <form onSubmit={save}>
-			<h2>Проверьте карточку</h2>
-			<p className="hint">Карточка появится у обоих учеников после сохранения.</p>
+			<h2>Sprawdź fiszkę</h2>
+			<p className="hint">Po zapisaniu fiszka pojawi się u obu osób.</p>
 			<fieldset disabled={locked}><CardFields value={draft.card} onChange={card => change({ card })} /></fieldset>
-			<button className="primary" disabled={busy} type="submit">Сохранить</button>
+			<button className="primary" disabled={busy} type="submit">Zapisz</button>
 		</form>}
 		{error && <p className="error" role="alert">{error}</p>}
 		{storageError && <p className="error" role="alert">{storageError}</p>}
-		{busy && <p role="status">Подождите…</p>}
-		{saved && <><p role="status">Карточка сохранена.</p><a className="word" href="#words" onClick={event => { event.preventDefault(); onOpen(saved); }}>Открыть в «Словах»</a></>}
-		{draft && <button className="discard" disabled={locked} onClick={() => { setDraft(null); setDictationId(value => value + 1); setError(''); setSaved(null); }}>Удалить черновик</button>}
+		{busy && <p role="status">Proszę czekać…</p>}
+		{saved && <><p role="status">Fiszka zapisana.</p><a className="word" href="#words" onClick={event => { event.preventDefault(); onOpen(saved); }}>Otwórz w „Słówkach”</a></>}
+		{draft && <button className="discard" disabled={locked} onClick={() => { setDraft(null); setDictationId(value => value + 1); setError(''); setSaved(null); }}>Usuń szkic</button>}
 	</section>;
 }

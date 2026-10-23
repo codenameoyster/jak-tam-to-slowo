@@ -13,25 +13,25 @@ export function localHttp(request: Request, env: Env): boolean {
 
 export function protectRequest(request: Request, env: Env): void {
 	const url = new URL(request.url);
-	if (url.protocol !== 'https:' && !localHttp(request, env)) throw new HttpError(403, 'https_required', 'Откройте приложение через HTTPS.');
+	if (url.protocol !== 'https:' && !localHttp(request, env)) throw new HttpError(403, 'https_required', 'Otwórz aplikację przez HTTPS.');
 	if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method) && request.headers.get('Origin') !== url.origin) {
-		throw new HttpError(403, 'foreign_origin', 'Откройте приложение и повторите действие.');
+		throw new HttpError(403, 'foreign_origin', 'Otwórz aplikację i powtórz czynność.');
 	}
 }
 
 export function methods(request: Request, allowed: string[]): void {
-	if (!allowed.includes(request.method)) throw new HttpError(405, 'method_not_allowed', 'Этот метод запроса недоступен.');
+	if (!allowed.includes(request.method)) throw new HttpError(405, 'method_not_allowed', 'Ta metoda żądania jest niedostępna.');
 }
 
 export function object(value: unknown, keys: string[]): Record<string, unknown> {
 	if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !keys.includes(key))) {
-		throw new HttpError(400, 'invalid_input', 'Проверьте поля запроса.');
+		throw new HttpError(400, 'invalid_input', 'Sprawdź pola żądania.');
 	}
 	return value as Record<string, unknown>;
 }
 
 export function text(value: unknown, max: number): string {
-	if (typeof value !== 'string' || !value.trim() || value.length > max) throw new HttpError(400, 'invalid_input', 'Проверьте текстовые поля.');
+	if (typeof value !== 'string' || !value.trim() || value.length > max) throw new HttpError(400, 'invalid_input', 'Sprawdź pola tekstowe.');
 	return value;
 }
 
@@ -52,8 +52,8 @@ export async function readBody(request: Request, maxBytes: number, tooLarge: str
 }
 
 export async function readJson(request: Request, maxBytes = 4096): Promise<unknown> {
-	if (request.headers.get('Content-Type')?.split(';')[0].trim() !== 'application/json') throw new HttpError(400, 'invalid_input', 'Отправьте запрос в формате JSON.');
-	const bytes = await (await readBody(request, maxBytes, 'Запрос слишком большой.')).arrayBuffer();
+	if (request.headers.get('Content-Type')?.split(';')[0].trim() !== 'application/json') throw new HttpError(400, 'invalid_input', 'Wyślij żądanie w formacie JSON.');
+	const bytes = await (await readBody(request, maxBytes, 'Żądanie jest za duże.')).arrayBuffer();
 	try { return JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes)); }
-	catch { throw new HttpError(400, 'invalid_input', 'Неверный JSON в запросе.'); }
+	catch { throw new HttpError(400, 'invalid_input', 'Nieprawidłowy JSON w żądaniu.'); }
 }

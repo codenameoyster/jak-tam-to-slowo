@@ -25,7 +25,7 @@ export default {
 				else if (pathname === '/api/dictation') response = await handleDictation(request, env);
 				else {
 					const result = await handleCards(request, env, user);
-					if (!result) throw new HttpError(404, 'not_found', 'Страница не найдена.');
+					if (!result) throw new HttpError(404, 'not_found', 'Nie znaleziono strony.');
 					response = result;
 				}
 			}
@@ -33,7 +33,7 @@ export default {
 			if (error instanceof HttpError) response = Response.json({ error: error.message, code: error.code }, { status: error.status });
 			else {
 				console.error(JSON.stringify({ event: 'request_failed', path: pathname, message: error instanceof Error ? error.message : 'Unknown error' }));
-				response = Response.json({ error: 'Не удалось выполнить запрос. Попробуйте снова.', code: 'internal_error' }, { status: 500 });
+				response = Response.json({ error: 'Nie udało się wykonać żądania. Spróbuj ponownie.', code: 'internal_error' }, { status: 500 });
 			}
 		}
 		response.headers.set('Cache-Control', 'private, no-store');

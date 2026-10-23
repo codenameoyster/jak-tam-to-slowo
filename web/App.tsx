@@ -36,7 +36,7 @@ export function App() {
 		try { signedIn(await api<User>('/session')); }
 		catch (error) {
 			if (error instanceof ApiError && error.code === 'unauthorized') setUser(null);
-			else setError('Не удалось загрузить аккаунт. Проверьте подключение и повторите.');
+			else setError('Nie udało się wczytać konta. Sprawdź połączenie i spróbuj ponownie.');
 		} finally { setLoading(false); }
 	}
 	useEffect(() => {
@@ -86,21 +86,21 @@ export function App() {
 			if (user) for (const key of Object.keys(sessionStorage).filter(key => key.endsWith(`:${user.id}`))) sessionStorage.removeItem(key);
 			expired();
 		} catch (error) {
-			if (!(error instanceof ApiError && error.code === 'account_mismatch')) setError('Не удалось выйти. Проверьте подключение и повторите.');
+			if (!(error instanceof ApiError && error.code === 'account_mismatch')) setError('Nie udało się wylogować. Sprawdź połączenie i spróbuj ponownie.');
 		}
 		finally { setBusy(false); }
 	}
 
 	return <main className={`app${user ? ' signed-in' : ''}`}>
-		<header className="brand"><span className="app-icon" aria-hidden="true">Ł</span><span className="brand-name" lang="pl">Jak tam to słowo?</span>{user && <div className="account"><span className="avatar" aria-hidden="true">{user.displayName.slice(0, 1)}</span><span className="name">{user.displayName}</span><button className="quiet" aria-label="Выйти" onClick={logout} disabled={busy}><Icon name="exit" /></button></div>}</header>
-		{loading ? <p role="status">Загрузка…</p> : user ? <>
-			<nav className="tabs" aria-label="Разделы">
-				<button aria-pressed={screen === 'study'} disabled={busy} onClick={() => setScreen('study')}><Icon name="study" />Учить</button>
-				<button aria-pressed={screen === 'words'} disabled={busy} onClick={() => { setSelectedCard(null); setScreen('words'); }}><Icon name="words" />Слова</button>
-				<button aria-pressed={screen === 'add'} disabled={busy} onClick={() => setScreen('add')}><Icon name="add" />Добавить</button>
+		<header className="brand"><span className="app-icon" aria-hidden="true">Ł</span><span className="brand-name" lang="pl">Jak tam to słowo?</span>{user && <div className="account"><span className="avatar" aria-hidden="true">{user.displayName.slice(0, 1)}</span><span className="name">{user.displayName}</span><button className="quiet" aria-label="Wyloguj" onClick={logout} disabled={busy}><Icon name="exit" /></button></div>}</header>
+		{loading ? <p role="status">Wczytywanie…</p> : user ? <>
+			<nav className="tabs" aria-label="Sekcje">
+				<button aria-pressed={screen === 'study'} disabled={busy} onClick={() => setScreen('study')}><Icon name="study" />Nauka</button>
+				<button aria-pressed={screen === 'words'} disabled={busy} onClick={() => { setSelectedCard(null); setScreen('words'); }}><Icon name="words" />Słówka</button>
+				<button aria-pressed={screen === 'add'} disabled={busy} onClick={() => setScreen('add')}><Icon name="add" />Dodaj</button>
 			</nav>
 			{screen === 'add' ? <AddWord key={user.id} userId={user.id} busy={busy} onBusy={setBusy} onOpen={card => { setSelectedCard(card); setScreen('words'); }} /> : screen === 'words' ? <Words key={user.id} userId={user.id} initialCard={selectedCard} onBusy={setBusy} /> : <Study key={user.id} user={user} onDirection={directionSaved} onBusy={setBusy} />}
 		</> : !error && <Login onLogin={signedIn} />}
-		{error && <div className="notice"><p className="error" role="alert">{error}</p>{!user && <button onClick={load}>Повторить</button>}</div>}
+		{error && <div className="notice"><p className="error" role="alert">{error}</p>{!user && <button onClick={load}>Ponów</button>}</div>}
 	</main>;
 }

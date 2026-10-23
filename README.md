@@ -1,14 +1,14 @@
 # Jak tam to słowo?
 
-A private Polish and Russian card-learning app for two learners. Cards and one server-side Anthropic API key are shared. Answers, review progress, translation direction, and card-creation attribution belong to each learner. The app uses React, Bun, Cloudflare Workers, and D1.
+A private Polish and Russian card-learning app for two learners. The interface and the answer explanations are in Polish. Card meanings are in Russian. Cards and one server-side Anthropic API key are shared. Answers, review progress, translation direction, and card-creation attribution belong to each learner. The app uses React, Bun, Cloudflare Workers, and D1.
 
 ## Learn words
 
-Use **Добавить** to prepare a card with the AI. Type or dictate in Polish or Russian. The AI infers the source language from the text. Select one meaning when a word has several meanings. Edit the terms, examples, and accepted answers before you save. Use **Слова** to search, edit, or archive shared cards.
+Use **Dodaj** to prepare a card with the AI. Type or dictate in Polish or Russian. The AI infers the source language from the text. Select one meaning when a word has several meanings. Edit the terms, examples, and accepted answers before you save. Use **Słówka** to search, edit, or archive shared cards.
 
-Study starts with `RU -> PL`. The app saves your last direction. It keeps up to ten cards ready and refills the queue when three remain. **Проверить** and **Показать ответ** show the target term and both usage examples. Correct answers use intervals of 1, 3, 7, 14, 30, and 60 days. Almost correct answers return in 10 minutes. Other answers and Reveal return in 1 minute. Exact answers and Reveal work without the AI. An exact answer can use `е` for `ё`. A Polish answer that differs from a saved term only in Polish diacritics, for example `slowo` for `Słowo`, is almost correct without the AI.
+**Nauka** starts with `RU -> PL`. The app saves your last direction. It keeps up to ten cards ready and refills the queue when three remain. **Sprawdź** and **Pokaż odpowiedź** (Reveal) show the target term and both usage examples. Correct answers use intervals of 1, 3, 7, 14, 30, and 60 days. Almost correct answers return in 10 minutes. Other answers and Reveal return in 1 minute. Exact answers and Reveal work without the AI. An exact answer can use `е` for `ё`. A Polish answer that differs from a saved term only in Polish diacritics, for example `slowo` for `Słowo`, is almost correct without the AI.
 
-If a save or review response is lost, use **Повторить**. The app sends the same request and does not record it twice. Keep that tab until the retry completes. Drafts use account-specific session storage. Session expiry retains drafts in that tab. Explicit logout clears them. A shared-card conflict retains your answer for copying. A stale tab with another displayed account receives `409 account_mismatch` before any action.
+If a save or review response is lost, use **Ponów**. The app sends the same request and does not record it twice. Keep that tab until the retry completes. Drafts use account-specific session storage. Session expiry retains drafts in that tab. Explicit logout clears them. A shared-card conflict retains your answer for copying. A stale tab with another displayed account receives `409 account_mismatch` before any action.
 
 ## Local setup
 
@@ -62,9 +62,9 @@ Anthropic bills API usage by tokens. Use a dedicated key in its own workspace. S
 
 ## Dictation
 
-Use **Диктовать** to record a short word or expression. Allow microphone access. Stop the recording within 30 seconds. The app replaces the text selected when the transcript arrives. If no text is selected, it adds the transcript after the current text. You can edit the result. Study uses the answer language. Add accepts Polish or Russian without a language selector. Cancel discards the clip. The complete upload must fit within 2 MiB.
+Use **Dyktuj** to record a short word or expression. Allow microphone access. Stop the recording within 30 seconds. The app replaces the text selected when the transcript arrives. If no text is selected, it adds the transcript after the current text. You can edit the result. **Nauka** uses the answer language. **Dodaj** accepts Polish or Russian without a language selector. **Anuluj** discards the clip. The complete upload must fit within 2 MiB.
 
-The server sends one multipart request to [OpenAI file transcription](https://developers.openai.com/api/docs/guides/speech-to-text) with `model=gpt-transcribe`. Add sends `language=auto`, which sets repeated `languages[]` fields to `pl` and `ru`. Explicit `pl` or `ru` callers, including Study, send one language hint. The response contains only the transcript text. The upload uses a generic filename. The request has a 30-second timeout. The app keeps audio only in request memory. Browser tests use controlled recordings. Actual iOS Safari and Android Chrome recording, permissions, encoding, and recognition still need device checks over HTTPS. These checks have not passed yet.
+The server sends one multipart request to [OpenAI file transcription](https://developers.openai.com/api/docs/guides/speech-to-text) with `model=gpt-transcribe`. **Dodaj** sends `language=auto`, which sets repeated `languages[]` fields to `pl` and `ru`. Explicit `pl` or `ru` callers, including **Nauka**, send one language hint. The response contains only the transcript text. The upload uses a generic filename. The request has a 30-second timeout. The app keeps audio only in request memory. Browser tests use controlled recordings. Actual iOS Safari and Android Chrome recording, permissions, encoding, and recognition still need device checks over HTTPS. These checks have not passed yet.
 
 Both learners use the server-only `OPENAI_TRANSCRIPTION_API_KEY` for speech. OpenAI bills speech separately from Anthropic usage. Anthropic generates cards and grades answers. A speech service error keeps the current text editable and keeps the application session active.
 

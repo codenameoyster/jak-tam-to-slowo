@@ -66,21 +66,21 @@ export function Dictation({ language, onText, disabled = false }: {
 		try {
 			const clip = new Blob(recording.chunks, { type });
 			recording.chunks = [];
-			if (!clip.size) { fail('Запись пустая. Повторите запись или введите текст.'); return; }
+			if (!clip.size) { fail('Nagranie jest puste. Nagraj ponownie lub wpisz tekst.'); return; }
 			const form = new FormData();
 			form.set('language', language);
 			form.set('clip', clip, type.startsWith('audio/mp4') ? 'clip.m4a' : 'clip.webm');
 			const encoded = new Response(form);
 			const body = await encoded.blob();
 			if (active.current !== recording) return;
-			if (body.size > DICTATION_MAX_BYTES) { fail('Запись слишком большая. Сделайте более короткую запись.'); return; }
+			if (body.size > DICTATION_MAX_BYTES) { fail('Nagranie jest za duże. Nagraj krótszy fragment.'); return; }
 			const result = await api<{ text: string }>('/dictation', { method: 'POST', body, headers: encoded.headers, signal: recording.controller.signal });
 			if (active.current !== recording) return;
 			onTextRef.current(result.text);
 			cancel();
 		} catch (error) {
 			if (active.current !== recording) return;
-			fail(error instanceof ApiError ? error.message : 'Не удалось распознать речь. Повторите запись или введите текст.');
+			fail(error instanceof ApiError ? error.message : 'Nie udało się rozpoznać mowy. Nagraj ponownie lub wpisz tekst.');
 		}
 	}
 
@@ -88,7 +88,7 @@ export function Dictation({ language, onText, disabled = false }: {
 		if (disabled || active.current) return;
 		setError('');
 		const type = typeof MediaRecorder !== 'undefined' && DICTATION_TYPES.find(type => MediaRecorder.isTypeSupported(type));
-		if (!type || !navigator.mediaDevices?.getUserMedia) { setError('Браузер не поддерживает формат записи. Введите текст.'); return; }
+		if (!type || !navigator.mediaDevices?.getUserMedia) { setError('Przeglądarka nie obsługuje formatu nagrania. Wpisz tekst.'); return; }
 		const recording: Recording = { controller: new AbortController(), chunks: [], bytes: 0 };
 		active.current = recording;
 		setState('requesting');
@@ -100,17 +100,17 @@ export function Dictation({ language, onText, disabled = false }: {
 			recorder.ondataavailable = event => {
 				if (active.current !== recording) return;
 				recording.bytes += event.data.size;
-				if (recording.bytes > DICTATION_MAX_BYTES) { fail('Запись слишком большая. Сделайте более короткую запись.'); return; }
+				if (recording.bytes > DICTATION_MAX_BYTES) { fail('Nagranie jest za duże. Nagraj krótszy fragment.'); return; }
 				recording.chunks.push(event.data);
 			};
-			recorder.onerror = () => { if (active.current === recording) fail('Не удалось записать звук. Повторите запись или введите текст.'); };
+			recorder.onerror = () => { if (active.current === recording) fail('Nie udało się nagrać dźwięku. Nagraj ponownie lub wpisz tekst.'); };
 			recorder.onstop = () => { void transcribe(recording, recorder.mimeType); };
 			recorder.start(1000);
 			recording.timer = setTimeout(finish, 30_000);
 			setState('recording');
 		} catch (error) {
 			if (active.current !== recording) return;
-			fail(error instanceof DOMException && error.name === 'NotAllowedError' ? 'Разрешите доступ к микрофону в браузере или введите текст.' : 'Не удалось записать звук. Повторите запись или введите текст.');
+			fail(error instanceof DOMException && error.name === 'NotAllowedError' ? 'Zezwól na dostęp do mikrofonu w przeglądarce lub wpisz tekst.' : 'Nie udało się nagrać dźwięku. Nagraj ponownie lub wpisz tekst.');
 		}
 	}
 
@@ -121,14 +121,14 @@ export function Dictation({ language, onText, disabled = false }: {
 	}
 
 	return <>
-		<p className="hint dictation-hint" hidden={state !== 'idle' || !!error}>После диктовки проверьте и измените текст в поле.</p>
+		<p className="hint dictation-hint" hidden={state !== 'idle' || !!error}>Po dyktowaniu sprawdź i popraw tekst w polu.</p>
 		<div className="dictation" data-state={state}>
 			<div className="dictation-status" hidden={state === 'idle' && !error}>
-				<p className="hint" aria-live="polite">{state === 'recording' ? 'Идёт запись. Не более 30 секунд.' : state === 'requesting' ? 'Разрешите доступ к микрофону.' : state === 'transcribing' ? 'Распознаём речь…' : ''}</p>
+				<p className="hint" aria-live="polite">{state === 'recording' ? 'Trwa nagrywanie. Najwyżej 30 sekund.' : state === 'requesting' ? 'Zezwól na dostęp do mikrofonu.' : state === 'transcribing' ? 'Rozpoznawanie mowy…' : ''}</p>
 				{error && <p className="error" role="alert">{error}</p>}
-				{state !== 'idle' && <button className="quiet" type="button" aria-label="Отменить диктовку" onMouseDown={event => event.preventDefault()} onClick={cancel}>Отменить</button>}
+				{state !== 'idle' && <button className="quiet" type="button" aria-label="Anuluj dyktowanie" onMouseDown={event => event.preventDefault()} onClick={cancel}>Anuluj</button>}
 			</div>
-			<button className="mic" type="button" aria-label={state === 'recording' ? 'Остановить запись' : 'Диктовать'} disabled={disabled || state === 'requesting' || state === 'transcribing'} onMouseDown={event => event.preventDefault()} onClick={() => state === 'recording' ? finish() : void start()}><Icon name={state === 'recording' ? 'stop' : 'mic'} /></button>
+			<button className="mic" type="button" aria-label={state === 'recording' ? 'Zatrzymaj nagrywanie' : 'Dyktuj'} disabled={disabled || state === 'requesting' || state === 'transcribing'} onMouseDown={event => event.preventDefault()} onClick={() => state === 'recording' ? finish() : void start()}><Icon name={state === 'recording' ? 'stop' : 'mic'} /></button>
 		</div>
 	</>;
 }

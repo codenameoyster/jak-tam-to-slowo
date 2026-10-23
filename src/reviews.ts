@@ -17,7 +17,7 @@ function identity(input: ReviewInput): string {
 
 function replay(row: ReviewRow | undefined, input: ReviewInput): ReviewResult | null {
 	if (!row) return null;
-	if (row.input_json !== identity(input)) throw new HttpError(409, 'review_conflict', 'Эта попытка уже сохранена с другим ответом.');
+	if (row.input_json !== identity(input)) throw new HttpError(409, 'review_conflict', 'Ta próba jest już zapisana z inną odpowiedzią.');
 	return JSON.parse(row.result_json);
 }
 
@@ -42,7 +42,7 @@ export async function commitReview(env: Env, userId: string, input: ReviewInput,
 		env.DB.prepare('SELECT input_json, result_json FROM reviews WHERE user_id = ? AND attempt_id = ?').bind(userId, input.attemptId),
 	]);
 	const stored = replay(saved.results[0], input);
-	if (!stored) throw new HttpError(409, 'version_conflict', 'Карточка или результат уже изменены. Откройте следующую карточку.');
+	if (!stored) throw new HttpError(409, 'version_conflict', 'Fiszka lub wynik zostały już zmienione. Otwórz następną fiszkę.');
 	return stored;
 }
 
@@ -53,12 +53,12 @@ export async function handleReview(request: Request, env: Env, user: User): Prom
 	if (typeof attemptId !== 'string' || !uuidPattern.test(attemptId) || typeof cardId !== 'string' || !uuidPattern.test(cardId)
 		|| typeof cardVersion !== 'number' || !Number.isSafeInteger(cardVersion) || cardVersion < 1
 		|| typeof progressVersion !== 'number' || !Number.isSafeInteger(progressVersion) || progressVersion < 0
-		|| (direction !== 'ru-pl' && direction !== 'pl-ru')) throw new HttpError(400, 'invalid_input', 'Проверьте карточку, версию и направление.');
+		|| (direction !== 'ru-pl' && direction !== 'pl-ru')) throw new HttpError(400, 'invalid_input', 'Sprawdź fiszkę, wersję i kierunek.');
 	const base = { attemptId, cardId, cardVersion, progressVersion };
 	let input: ReviewInput;
 	if (action === 'answer' && typeof answer === 'string' && answer.length <= 500) input = { ...base, direction, action, answer };
 	else if (action === 'reveal' && !('answer' in data)) input = { ...base, direction, action };
-	else throw new HttpError(400, 'invalid_input', 'Укажите ответ или выберите показ ответа.');
+	else throw new HttpError(400, 'invalid_input', 'Podaj odpowiedź lub wybierz „Pokaż odpowiedź”.');
 	const [review, row, state] = await env.DB.batch([
 		env.DB.prepare('SELECT input_json, result_json FROM reviews WHERE user_id = ? AND attempt_id = ?').bind(user.id, attemptId),
 		env.DB.prepare(`SELECT ${columns} FROM cards WHERE id = ?`).bind(cardId),
@@ -66,13 +66,13 @@ export async function handleReview(request: Request, env: Env, user: User): Prom
 	]);
 	const saved = replay(review.results[0] as ReviewRow | undefined, input);
 	if (saved) return Response.json(saved);
-	if (!row.results[0]) throw new HttpError(404, 'not_found', 'Карточка не найдена.');
+	if (!row.results[0]) throw new HttpError(404, 'not_found', 'Nie znaleziono fiszki.');
 	const card = fromRow(row.results[0] as CardRow);
-	if (card.archived || card.version !== cardVersion) throw new HttpError(409, 'version_conflict', 'Карточка уже изменена. Откройте следующую карточку.');
+	if (card.archived || card.version !== cardVersion) throw new HttpError(409, 'version_conflict', 'Fiszka została już zmieniona. Otwórz następną fiszkę.');
 	let graded: { result: GradeResult; source: ReviewResult['source'] };
 	try {
 		graded = input.action === 'answer' ? await gradeAnswer(env, card, direction, input.answer) : {
-			result: { grade: 'again', correction: direction === 'ru-pl' ? card.pl : card.ru, explanationRu: 'Повторите слово.' }, source: 'reveal',
+			result: { grade: 'again', correction: direction === 'ru-pl' ? card.pl : card.ru, explanation: 'Powtórz słowo.' }, source: 'reveal',
 		};
 	} catch (error) {
 		if (!(error instanceof HttpError)) throw error;

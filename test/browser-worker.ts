@@ -19,7 +19,7 @@ provider.messages = async request => {
 	const input = JSON.parse(body.messages[0].content);
 	if (input.text === 'ошибка подключения' || input.answer === 'ошибка подключения') return apiError(401, 'authentication_error');
 	if (input.answer === 'лимит') return apiError(429, 'rate_limit_error');
-	if ('answer' in input) return message({ grade: input.answer === 'domu' ? 'almost' : 'again', explanationRu: 'Используйте словарную форму.' });
+	if ('answer' in input) return message({ grade: input.answer === 'domu' ? 'almost' : 'again', explanation: 'Użyj formy słownikowej.' });
 	if (input.text === 'лук' && !input.meaningRu) return message({ result: { kind: 'choices', choices: ['Овощ', 'Оружие для стрельбы стрелами'] } });
 	return message({ result: { kind: 'draft', card: input.text === 'лук' ? ONION_DRAFT : WORD_DRAFT } });
 };

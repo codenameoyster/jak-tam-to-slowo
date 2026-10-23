@@ -14,7 +14,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 	if (!response.ok) {
 		const data = await response.json() as { error?: string; code?: string };
 		if (expectedAccount && expectedAccount === accountId && (data.code === 'account_mismatch' || data.code === 'unauthorized')) window.dispatchEvent(new Event('session-ended'));
-		throw new ApiError(response.status, data.error ?? 'Не удалось выполнить запрос. Попробуйте снова.', data.code, response.headers.get('X-Review-Recovery') === 'editable');
+		throw new ApiError(response.status, data.error ?? 'Nie udało się wykonać żądania. Spróbuj ponownie.', data.code, response.headers.get('X-Review-Recovery') === 'editable');
 	}
 	return response.status === 204 ? undefined as T : response.json() as Promise<T>;
 }

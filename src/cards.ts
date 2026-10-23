@@ -13,7 +13,7 @@ export function fromRow(row: CardRow): Card {
 }
 
 function alternatives(value: unknown): string[] {
-	if (!Array.isArray(value) || value.length > 8) throw new HttpError(400, 'invalid_input', 'Укажите не больше восьми других ответов для каждого языка.');
+	if (!Array.isArray(value) || value.length > 8) throw new HttpError(400, 'invalid_input', 'Podaj najwyżej osiem innych odpowiedzi dla każdego języka.');
 	return value.map(item => text(item, 200).trim());
 }
 
@@ -31,20 +31,20 @@ function searchKey(value: string): string { return value.trim().normalize('NFC')
 
 export async function readCard(env: Env, id: string): Promise<Card> {
 	const row = await env.DB.prepare(`SELECT ${columns} FROM cards WHERE id = ?`).bind(id).first<CardRow>();
-	if (!row) throw new HttpError(404, 'not_found', 'Карточка не найдена.');
+	if (!row) throw new HttpError(404, 'not_found', 'Nie znaleziono fiszki.');
 	return fromRow(row);
 }
 
 async function listCards(url: URL, env: Env): Promise<CardPage> {
 	const query = url.searchParams.get('q') ?? '';
-	if (query.length > 200) throw new HttpError(400, 'invalid_input', 'Поисковый запрос слишком длинный.');
+	if (query.length > 200) throw new HttpError(400, 'invalid_input', 'Zapytanie jest za długie.');
 	let time: number | null = null;
 	let id: string | null = null;
 	const cursor = url.searchParams.get('cursor');
 	if (cursor !== null) {
 		const parts = cursor.split(':');
 		if (parts.length !== 2 || !/^\d{1,16}$/.test(parts[0]) || !Number.isSafeInteger(Number(parts[0])) || !uuidPattern.test(parts[1])) {
-			throw new HttpError(400, 'invalid_input', 'Неверный указатель страницы. Повторите поиск.');
+			throw new HttpError(400, 'invalid_input', 'Nieprawidłowy wskaźnik strony. Wyszukaj ponownie.');
 		}
 		time = Number(parts[0]);
 		id = parts[1];
@@ -64,7 +64,7 @@ export async function handleCards(request: Request, env: Env, user: User): Promi
 		methods(request, ['GET', 'POST']);
 		if (request.method === 'GET') return Response.json(await listCards(url, env));
 		const { id, ...value } = object(await readJson(request, 32_768), ['id', ...contentKeys]);
-		if (typeof id !== 'string' || !uuidPattern.test(id)) throw new HttpError(400, 'invalid_input', 'Неверный идентификатор карточки.');
+		if (typeof id !== 'string' || !uuidPattern.test(id)) throw new HttpError(400, 'invalid_input', 'Nieprawidłowy identyfikator fiszki.');
 		const content = parseCard(value);
 		const now = Date.now();
 		const row = await env.DB.prepare(`INSERT INTO cards
@@ -75,7 +75,7 @@ export async function handleCards(request: Request, env: Env, user: User): Promi
 		if (row) return Response.json(fromRow(row), { status: 201 });
 		const original = await env.DB.prepare('SELECT create_content FROM cards WHERE id = ?').bind(id).first<string>('create_content');
 		if (original !== JSON.stringify(content)) {
-			throw new HttpError(409, 'card_conflict', 'Карточка с этим идентификатором уже содержит другой текст.');
+			throw new HttpError(409, 'card_conflict', 'Fiszka o tym identyfikatorze zawiera już inny tekst.');
 		}
 		return Response.json(await readCard(env, id));
 	}
@@ -85,11 +85,11 @@ export async function handleCards(request: Request, env: Env, user: User): Promi
 	const id = match[1];
 	const data = object(await readJson(request, 32_768), ['version', 'archived', ...contentKeys]);
 	const { version, ...value } = data;
-	if (typeof version !== 'number' || !Number.isSafeInteger(version) || version < 1) throw new HttpError(400, 'invalid_input', 'Укажите версию карточки.');
+	if (typeof version !== 'number' || !Number.isSafeInteger(version) || version < 1) throw new HttpError(400, 'invalid_input', 'Podaj wersję fiszki.');
 	let row: CardRow | null;
 	if ('archived' in value) {
 		object(value, ['archived']);
-		if (value.archived !== true) throw new HttpError(400, 'invalid_input', 'Выберите карточку для архива.');
+		if (value.archived !== true) throw new HttpError(400, 'invalid_input', 'Wybierz fiszkę do archiwum.');
 		await readCard(env, id);
 		row = await env.DB.prepare(`UPDATE cards SET archived = 1, version = version + 1, updated_at = ?
 			WHERE id = ? AND version = ? AND archived = 0 RETURNING ${columns}`).bind(Date.now(), id, version).first<CardRow>();
@@ -102,6 +102,6 @@ export async function handleCards(request: Request, env: Env, user: User): Promi
 			.bind(content.pl, content.ru, content.examplePl, content.exampleRu, content.meaningRu,
 				JSON.stringify(content.alternativesPl), JSON.stringify(content.alternativesRu), searchKey(content.pl), searchKey(content.ru), Date.now(), id, version).first<CardRow>();
 	}
-	if (!row) throw new HttpError(409, 'version_conflict', 'Карточка уже изменена, возможно вашим прошлым сохранением. Скопируйте текст, откройте карточку снова и проверьте его.');
+	if (!row) throw new HttpError(409, 'version_conflict', 'Fiszka została już zmieniona, być może przez Twój poprzedni zapis. Skopiuj tekst, otwórz fiszkę ponownie i sprawdź ją.');
 	return Response.json(fromRow(row));
 }

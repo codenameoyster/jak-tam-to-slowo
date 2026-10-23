@@ -27,39 +27,41 @@ test('caches a hashed asset for one year', async ({ page }) => {
 
 test('keeps the account and direction after reload and revokes access at logout', async ({ page }, testInfo) => {
 	await page.goto('/');
+	await expect(page.locator('html')).toHaveAttribute('lang', 'pl');
+	await expect(page).toHaveTitle('Jak tam to słowo? | Polskie słówka');
 	expect((await page.request.get('/api/session')).status()).toBe(401);
 	const stylesheet = await page.locator('link[rel="stylesheet"]').getAttribute('href');
 	expect((await page.request.get(stylesheet!)).headers()['content-type']).toContain('text/css');
-	await page.getByLabel('Имя пользователя').fill(USER_A.username);
-	await page.getByLabel('Пароль', { exact: true }).fill(USER_A.password);
-	await page.getByRole('button', { name: 'Войти', exact: true }).click();
+	await page.getByLabel('Nazwa użytkownika').fill(USER_A.username);
+	await page.getByLabel('Hasło', { exact: true }).fill(USER_A.password);
+	await page.getByRole('button', { name: 'Zaloguj', exact: true }).click();
 	await expect(page.getByText(USER_A.displayName, { exact: true })).toBeVisible();
 	await page.getByRole('button', { name: 'PL -> RU', exact: true }).click();
 	await expect(page.getByRole('button', { name: 'PL -> RU', exact: true })).toHaveAttribute('aria-pressed', 'true');
-	await page.getByRole('button', { name: 'Добавить', exact: true }).click();
-	await page.getByRole('button', { name: 'Учить', exact: true }).click();
+	await page.getByRole('button', { name: 'Dodaj', exact: true }).click();
+	await page.getByRole('button', { name: 'Nauka', exact: true }).click();
 	await expect(page.getByRole('button', { name: 'PL -> RU', exact: true })).toHaveAttribute('aria-pressed', 'true');
 	await page.reload();
 	await expect(page.getByText(USER_A.displayName, { exact: true })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'PL -> RU', exact: true })).toHaveAttribute('aria-pressed', 'true');
 	await page.screenshot({ path: `.wrangler/playwright/account-${testInfo.project.name}-${page.viewportSize()!.width}.png`, fullPage: true, animations: 'disabled', scale: 'css' });
-	await page.getByRole('button', { name: 'Выйти', exact: true }).click();
-	await expect(page.getByRole('button', { name: 'Войти', exact: true })).toBeVisible();
+	await page.getByRole('button', { name: 'Wyloguj', exact: true }).click();
+	await expect(page.getByRole('button', { name: 'Zaloguj', exact: true })).toBeVisible();
 	expect((await page.request.get('/api/session')).status()).toBe(401);
-	await page.getByLabel('Имя пользователя').fill(USER_B.username);
-	await page.getByLabel('Пароль', { exact: true }).fill(USER_B.password);
-	await page.getByRole('button', { name: 'Войти', exact: true }).click();
+	await page.getByLabel('Nazwa użytkownika').fill(USER_B.username);
+	await page.getByLabel('Hasło', { exact: true }).fill(USER_B.password);
+	await page.getByRole('button', { name: 'Zaloguj', exact: true }).click();
 	await expect(page.getByText(USER_B.displayName, { exact: true })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'RU -> PL', exact: true })).toHaveAttribute('aria-pressed', 'true');
 });
 
 test('shows a failed sign-in and allows another attempt', async ({ page }, testInfo) => {
 	await page.goto('/');
-	await page.getByLabel('Имя пользователя').fill(USER_A.username);
-	await page.getByLabel('Пароль', { exact: true }).fill('wrong-password');
-	await page.getByRole('button', { name: 'Войти', exact: true }).click();
-	await expect(page.getByRole('alert')).toContainText('Неверное имя пользователя или пароль.');
-	await expect(page.getByRole('button', { name: 'Войти', exact: true })).toBeEnabled();
+	await page.getByLabel('Nazwa użytkownika').fill(USER_A.username);
+	await page.getByLabel('Hasło', { exact: true }).fill('wrong-password');
+	await page.getByRole('button', { name: 'Zaloguj', exact: true }).click();
+	await expect(page.getByRole('alert')).toContainText('Nieprawidłowa nazwa użytkownika lub hasło.');
+	await expect(page.getByRole('button', { name: 'Zaloguj', exact: true })).toBeEnabled();
 	await page.screenshot({ path: `.wrangler/playwright/login-error-${testInfo.project.name}-${page.viewportSize()!.width}.png`, fullPage: true, animations: 'disabled', scale: 'css' });
 });
 

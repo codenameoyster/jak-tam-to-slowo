@@ -14,21 +14,21 @@ export function Login({ onLogin }: { onLogin: (user: User) => void }) {
 		try {
 			onLogin(await api<User>('/session', { method: 'POST', body: JSON.stringify({ username: form.get('username'), password: form.get('password') }) }));
 		} catch (error) {
-			setError(error instanceof ApiError ? error.message : 'Нет связи с сервером. Проверьте подключение и повторите вход.');
+			setError(error instanceof ApiError ? error.message : 'Brak połączenia z serwerem. Sprawdź połączenie i zaloguj się ponownie.');
 		} finally { setBusy(false); }
 	}
 
 	return <section className="login" aria-labelledby="login-title">
 		<span className="app-icon" aria-hidden="true">Ł</span>
-		<h1 id="login-title">Польские слова</h1>
-		<p className="intro">Войдите в свой аккаунт, чтобы продолжить.</p>
+		<h1 id="login-title">Polskie słówka</h1>
+		<p className="intro">Zaloguj się, aby kontynuować.</p>
 		<form onSubmit={submit}>
-			<label htmlFor="username">Имя пользователя</label>
+			<label htmlFor="username">Nazwa użytkownika</label>
 			<input id="username" name="username" autoComplete="username" autoCapitalize="none" spellCheck={false} maxLength={40} required />
-			<label htmlFor="password">Пароль</label>
+			<label htmlFor="password">Hasło</label>
 			<input id="password" name="password" type="password" autoComplete="current-password" maxLength={256} required />
 			{error && <p className="error" role="alert">{error}</p>}
-			<button className="primary" type="submit" disabled={busy}>{busy ? 'Вход…' : 'Войти'}</button>
+			<button className="primary" type="submit" disabled={busy}>{busy ? 'Logowanie…' : 'Zaloguj'}</button>
 		</form>
 	</section>;
 }

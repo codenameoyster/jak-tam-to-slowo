@@ -16,7 +16,7 @@ function accounts(env: Env): Account[] {
 		});
 		if (new Set(parsed.map(account => account.id)).size !== parsed.length || new Set(parsed.map(account => account.username)).size !== parsed.length) throw new Error();
 		return parsed;
-	} catch { throw new HttpError(503, 'setup_required', 'Аккаунты не настроены. Обратитесь к владельцу приложения.'); }
+	} catch { throw new HttpError(503, 'setup_required', 'Konta nie są skonfigurowane. Skontaktuj się z właścicielem aplikacji.'); }
 }
 
 function hex(bytes: Uint8Array): string { return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join(''); }
@@ -42,11 +42,11 @@ async function requireSession(request: Request, env: Env): Promise<{ user: User;
 		const account = row && accounts(env).find(account => account.id === row.id);
 		if (row && account && row.credential_fingerprint === await fingerprint(account)) {
 			const displayedAccount = request.headers.get('X-Account-ID');
-			if (displayedAccount !== null && displayedAccount !== row.id) throw new HttpError(409, 'account_mismatch', 'Аккаунт изменился в другой вкладке. Войдите снова.');
+			if (displayedAccount !== null && displayedAccount !== row.id) throw new HttpError(409, 'account_mismatch', 'Konto zmieniło się w innej karcie. Zaloguj się ponownie.');
 			return { user: { id: row.id, username: row.username, displayName: row.displayName, direction: row.direction }, sessionHash };
 		}
 	}
-	throw new HttpError(401, 'unauthorized', 'Войдите, чтобы продолжить.');
+	throw new HttpError(401, 'unauthorized', 'Zaloguj się, aby kontynuować.');
 }
 
 export async function requireUser(request: Request, env: Env): Promise<User> { return (await requireSession(request, env)).user; }
@@ -54,14 +54,14 @@ export async function requireUser(request: Request, env: Env): Promise<User> { r
 export async function handleSession(request: Request, env: Env): Promise<Response> {
 	methods(request, ['GET', 'POST', 'DELETE']);
 	if (request.method === 'POST') {
-		if (!(await env.LOGIN_LIMITER.limit({ key: request.headers.get('CF-Connecting-IP') ?? 'local' })).success) throw new HttpError(429, 'rate_limited', 'Слишком много попыток входа. Попробуйте снова через минуту.');
+		if (!(await env.LOGIN_LIMITER.limit({ key: request.headers.get('CF-Connecting-IP') ?? 'local' })).success) throw new HttpError(429, 'rate_limited', 'Zbyt wiele prób logowania. Spróbuj ponownie za minutę.');
 		const data = object(await readJson(request), ['username', 'password']);
 		const username = text(data.username, 40);
 		const password = text(data.password, 256);
 		const account = accounts(env).find(account => account.username === username);
 		const digest = await hash(password);
 		const matches = crypto.subtle.timingSafeEqual(new TextEncoder().encode(digest), new TextEncoder().encode(account?.passwordHash ?? '0'.repeat(64)));
-		if (!account || !matches) throw new HttpError(401, 'invalid_credentials', 'Неверное имя пользователя или пароль.');
+		if (!account || !matches) throw new HttpError(401, 'invalid_credentials', 'Nieprawidłowa nazwa użytkownika lub hasło.');
 		const value = hex(crypto.getRandomValues(new Uint8Array(32)));
 		const now = Date.now();
 		await env.DB.batch([
@@ -90,7 +90,7 @@ export async function handleSession(request: Request, env: Env): Promise<Respons
 export async function handleMe(request: Request, env: Env, user: User): Promise<Response> {
 	methods(request, ['PATCH']);
 	const data = object(await readJson(request), ['direction']);
-	if (data.direction !== 'ru-pl' && data.direction !== 'pl-ru') throw new HttpError(400, 'invalid_input', 'Выберите направление перевода.');
+	if (data.direction !== 'ru-pl' && data.direction !== 'pl-ru') throw new HttpError(400, 'invalid_input', 'Wybierz kierunek tłumaczenia.');
 	await env.DB.prepare('UPDATE users SET direction = ? WHERE id = ?').bind(data.direction, user.id).run();
 	return Response.json({ ...user, direction: data.direction });
 }

@@ -27,7 +27,7 @@ function initial(user: User): Session {
 	return {
 		direction: user.direction, cardId: null, answer: '', pending: null, reviewedCard: null, retainedAnswer: '', ...recovery,
 		queue: [], state: recovery?.pending ? 'error' : 'loading', feedback: null, nextDueAt: null,
-		error: recovery?.pending ? 'Сохранение ответа не подтверждено. Повторите запрос.' : '',
+		error: recovery?.pending ? 'Zapis odpowiedzi nie został potwierdzony. Ponów żądanie.' : '',
 		savedDirection: user.direction, savingDirection: false,
 	};
 }
@@ -53,7 +53,7 @@ export function useStudy(user: User) {
 			else sessionStorage.removeItem(key);
 			return true;
 		} catch {
-			update({ error: 'Браузер не сохранил ответ. Скопируйте текст и освободите место перед повтором.' });
+			update({ error: 'Przeglądarka nie zapisała odpowiedzi. Skopiuj tekst i zwolnij miejsce przed ponowną próbą.' });
 			return false;
 		}
 	}
@@ -96,7 +96,7 @@ export function useStudy(user: User) {
 		} catch (error) {
 			if (version !== generation.current) return;
 			retryAction.current = () => void load();
-			update({ error: failed(error, 'Нет связи с сервером. Карточки остались в очереди. Повторите загрузку.'),
+			update({ error: failed(error, 'Brak połączenia z serwerem. Fiszki zostały w kolejce. Ponów wczytywanie.'),
 				state: live.current.queue.length ? live.current.state : 'error' });
 		} finally { if (refill.current === flight) refill.current = null; }
 	}
@@ -137,7 +137,7 @@ export function useStudy(user: User) {
 	async function setDirection(direction: Direction) {
 		const current = live.current;
 		if (direction === current.direction || current.pending || current.savingDirection) return;
-		if ((current.answer || current.retainedAnswer) && !window.confirm('Сменить направление и удалить несохранённый ответ?')) return;
+		if ((current.answer || current.retainedAnswer) && !window.confirm('Zmienić kierunek i usunąć niezapisaną odpowiedź?')) return;
 		const version = ++generation.current;
 		refill.current = null;
 		update({ savingDirection: true, error: '' });
@@ -152,7 +152,7 @@ export function useStudy(user: User) {
 		} catch (error) {
 			if (version !== generation.current) return;
 			retryAction.current = () => void setDirection(direction);
-			update({ error: failed(error, 'Не удалось сохранить направление. Ответ остался в форме.'), savingDirection: false });
+			update({ error: failed(error, 'Nie udało się zapisać kierunku. Odpowiedź została w formularzu.'), savingDirection: false });
 		}
 	}
 
@@ -160,7 +160,7 @@ export function useStudy(user: User) {
 		const current = live.current, item = current.queue[0];
 		if (current.state === 'checking' || current.state === 'feedback' || current.savingDirection || (!current.pending && !item)) return;
 		if (!current.pending && action === 'answer' && current.answer.length > 500) {
-			update({ error: 'Сократите ответ до 500 символов и повторите проверку.' });
+			update({ error: 'Skróć odpowiedź do 500 znaków i sprawdź ponownie.' });
 			return;
 		}
 		const input: ReviewInput | null = current.pending ? null : {
@@ -197,7 +197,7 @@ export function useStudy(user: User) {
 				update({ pending: null, reviewedCard: null, cardId: rejected.cardId, state: current.queue.length ? 'answering' : 'loading', error: error.message });
 				persist();
 				if (!current.queue.length) void load();
-			} else update({ error: failed(error, 'Нет связи с сервером. Сохранение ответа не подтверждено. Повторите запрос.'), state: 'error' });
+			} else update({ error: failed(error, 'Brak połączenia z serwerem. Zapis odpowiedzi nie został potwierdzony. Ponów żądanie.'), state: 'error' });
 		}
 	}
 

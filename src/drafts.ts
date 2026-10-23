@@ -33,6 +33,6 @@ export async function handleDraft(request: Request, env: Env): Promise<Response>
 			if (new Set(choices).size !== choices.length) throw new Error('Duplicate choices.');
 			result = { kind: 'choices', choices };
 		}
-	} catch { throw new HttpError(503, 'ai_invalid_response', 'ИИ вернул неверную карточку. Попробуйте снова.'); }
+	} catch { throw new HttpError(503, 'ai_invalid_response', 'Model AI zwrócił nieprawidłową fiszkę. Spróbuj ponownie.'); }
 	return Response.json(result);
 }

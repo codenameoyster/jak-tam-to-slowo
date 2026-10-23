@@ -7,7 +7,7 @@ import { apiError, createProvider, message } from './provider';
 
 const now = Date.parse('2026-10-21T10:00:00.000Z');
 const input: ReviewInput = { attemptId: '10000000-0000-4000-8000-000000000001', cardId: CARD_A.id, cardVersion: 1, progressVersion: 0, direction: 'ru-pl', action: 'answer', answer: 'wyraz' };
-const correct = { grade: 'correct', explanationRu: 'Верный перевод для этого значения.' };
+const correct = { grade: 'correct', explanation: 'Poprawne tłumaczenie w tym znaczeniu.' };
 let provider: ReturnType<typeof createProvider>, cookie: string;
 beforeEach(async () => {
 	vi.useFakeTimers({ toFake: ['Date'] });
@@ -96,14 +96,14 @@ it.each([
 it.each([
 	{ name: 'unknown grade', result: { ...correct, grade: 'good' } },
 	{ name: 'missing grade', result: { ...correct, grade: undefined } },
-	{ name: 'oversized explanation', result: { ...correct, explanationRu: 'я'.repeat(501) } },
+	{ name: 'oversized explanation', result: { ...correct, explanation: 'я'.repeat(501) } },
 	{ name: 'unexpected result field', result: { ...correct, stage: 6 } },
 ])('rejects an AI result with $name before storage', async ({ result }) => {
 	provider.messages = () => message(result);
 	const response = await review();
 	expect(response.status).toBe(503);
 	expect(response.headers.get('X-Review-Recovery')).toBe('editable');
-	expect(await response.json()).toEqual({ code: 'ai_invalid_response', error: 'ИИ вернул неверную оценку. Попробуйте снова.' });
+	expect(await response.json()).toEqual({ code: 'ai_invalid_response', error: 'Model AI zwrócił nieprawidłową ocenę. Spróbuj ponownie.' });
 	expect(await tables()).toEqual({ state: [], reviews: [] });
 });
 
@@ -127,16 +127,16 @@ it.each([
 });
 
 it.each([
-	{ name: 'exact answer', body: { ...input, answer: ' Słowo ' }, grade: 'correct', correction: 'Słowo', source: 'exact', stage: 1, delay: 86_400_000 },
-	{ name: 'empty answer', body: { ...input, answer: '' }, grade: 'again', correction: 'Słowo', source: 'exact', stage: 0, delay: 60_000 },
-	{ name: 'reveal', body: { ...input, action: 'reveal', answer: undefined }, grade: 'again', correction: 'Słowo', source: 'reveal', stage: 0, delay: 60_000 },
-	{ name: 'Russian reveal', body: { ...input, action: 'reveal', answer: undefined, direction: 'pl-ru' }, grade: 'again', correction: 'Слово', source: 'reveal', stage: 0, delay: 60_000 },
-])('saves the $name without the AI key and provider access', async ({ body, grade, correction, source, stage, delay }) => {
+	{ name: 'exact answer', body: { ...input, answer: ' Słowo ' }, grade: 'correct', correction: 'Słowo', explanation: 'Dobrze.', source: 'exact', stage: 1, delay: 86_400_000 },
+	{ name: 'empty answer', body: { ...input, answer: '' }, grade: 'again', correction: 'Słowo', explanation: 'Brak odpowiedzi. Powtórz słowo.', source: 'exact', stage: 0, delay: 60_000 },
+	{ name: 'reveal', body: { ...input, action: 'reveal', answer: undefined }, grade: 'again', correction: 'Słowo', explanation: 'Powtórz słowo.', source: 'reveal', stage: 0, delay: 60_000 },
+	{ name: 'Russian reveal', body: { ...input, action: 'reveal', answer: undefined, direction: 'pl-ru' }, grade: 'again', correction: 'Слово', explanation: 'Powtórz słowo.', source: 'reveal', stage: 0, delay: 60_000 },
+])('saves the $name without the AI key and provider access', async ({ body, grade, correction, explanation, source, stage, delay }) => {
 	Reflect.deleteProperty(env, 'ANTHROPIC_API_KEY');
 	const count = provider.calls.length;
 	const response = await review(body);
 	expect(response.status).toBe(200);
-	expect(await response.json()).toMatchObject({ grade, correction, source, progress: { stage, version: 1, dueAt: now + delay } });
+	expect(await response.json()).toMatchObject({ grade, correction, explanation, source, progress: { stage, version: 1, dueAt: now + delay } });
 	expect((await tables()).reviews).toHaveLength(1);
 	expect(provider.calls).toHaveLength(count);
 });

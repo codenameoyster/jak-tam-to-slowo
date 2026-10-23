@@ -23,7 +23,7 @@ export function Words({ userId, onBusy, initialCard = null }: { userId: string; 
 			else sessionStorage.removeItem(key);
 			setStorageError('');
 			return true;
-		} catch { setStorageError('Браузер не сохранил правки. Скопируйте текст и освободите место перед повтором.'); return false; }
+		} catch { setStorageError('Przeglądarka nie zapisała zmian. Skopiuj tekst i zwolnij miejsce przed ponowną próbą.'); return false; }
 	}
 	function changeEdit(value: Edit | null) { setEdit(value); persist(value); }
 	function failed(error: unknown, fallback: string) {
@@ -39,7 +39,7 @@ export function Words({ userId, onBusy, initialCard = null }: { userId: string; 
 			const result = await api<CardPage>(`/cards?${params}`);
 			setPage(current => ({ cards: cursor ? [...current.cards, ...result.cards] : result.cards, nextCursor: result.nextCursor }));
 			setSearch(query);
-		} catch (error) { failed(error, 'Нет связи с сервером. Повторите поиск.'); }
+		} catch (error) { failed(error, 'Brak połączenia z serwerem. Wyszukaj ponownie.'); }
 		finally { setBusy(false); }
 	}
 	useEffect(() => { void load(''); if (initialCard && !edit) select(initialCard); }, [initialCard]);
@@ -64,43 +64,43 @@ export function Words({ userId, onBusy, initialCard = null }: { userId: string; 
 			await api<Card>(`/cards/${edit.card.id}`, { method: 'PATCH', body: JSON.stringify(body) });
 			changeEdit(null);
 			await load(search);
-		} catch (error) { failed(error, 'Нет связи с сервером. Правки остались в форме. Попробуйте сохранить ещё раз.'); }
+		} catch (error) { failed(error, 'Brak połączenia z serwerem. Zmiany zostały w formularzu. Spróbuj zapisać ponownie.'); }
 		finally { setBusy(false); onBusy(false); }
 	}
 
 	function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); void save(); }
 
 	return <section className="page words" aria-labelledby="words-title" aria-busy={busy}>
-		<h1 id="words-title">Слова</h1>
+		<h1 id="words-title">Słówka</h1>
 		{edit ? <>
-			<p>Изменения видны обоим ученикам.</p>
-			<p className="hint">Сохраняйте значение карточки. Для другого значения используйте «Добавить».</p>
+			<p>Zmiany będą widoczne dla obu osób.</p>
+			<p className="hint">Zachowaj znaczenie fiszki. Dla innego znaczenia użyj „Dodaj”.</p>
 			<form onSubmit={submit}>
 				<fieldset disabled={busy}><CardFields value={edit.value} onChange={value => changeEdit({ ...edit, value })} /></fieldset>
 				{error && <p className="error" role="alert">{error}</p>}
-				<button className="primary" disabled={busy} type="submit">Сохранить</button>
+				<button className="primary" disabled={busy} type="submit">Zapisz</button>
 				<div className="edit-actions">
-					<button type="button" disabled={busy} onClick={() => { changeEdit(null); void load(search); }}>Отменить правки</button>
-					<button type="button" disabled={busy} onClick={() => void save(true)}>В архив</button>
+					<button type="button" disabled={busy} onClick={() => { changeEdit(null); void load(search); }}>Odrzuć zmiany</button>
+					<button type="button" disabled={busy} onClick={() => void save(true)}>Do archiwum</button>
 				</div>
-				<p className="hint">Архив скроет карточку у обоих учеников.</p>
+				<p className="hint">Archiwizacja ukryje fiszkę u obu osób.</p>
 			</form>
 		</> : <>
-			<p className="intro">Общая коллекция польских и русских слов.</p>
+			<p className="intro">Wspólna kolekcja polskich i rosyjskich słówek.</p>
 			<form className="search" onSubmit={event => { event.preventDefault(); void load(query); }}>
-				<label htmlFor="word-search">Поиск слов</label>
-				<input id="word-search" type="search" placeholder="Поиск слов" maxLength={200} value={query} disabled={busy} onChange={event => setQuery(event.target.value)} />
-				<button disabled={busy}>Найти</button>
+				<label htmlFor="word-search">Szukaj słówek</label>
+				<input id="word-search" type="search" placeholder="Szukaj słówek" maxLength={200} value={query} disabled={busy} onChange={event => setQuery(event.target.value)} />
+				<button disabled={busy}>Szukaj</button>
 			</form>
 			{error && <p className="error" role="alert">{error}</p>}
-			{!busy && !error && !page.cards.length && <p role="status">{search ? 'Ничего не найдено.' : 'Слов пока нет.'}</p>}
+			{!busy && !error && !page.cards.length && <p role="status">{search ? 'Nic nie znaleziono.' : 'Nie ma jeszcze słówek.'}</p>}
 			<ul className="words-list">{page.cards.map(card => <li key={card.id}>
 				<button className="word" disabled={busy} onClick={() => select(card)}><span lang="pl">{card.pl}</span> / <span lang="ru">{card.ru}</span></button>
-				<p className="hint">{card.meaningRu}</p>
+				<p className="hint" lang="ru">{card.meaningRu}</p>
 			</li>)}</ul>
-			{page.nextCursor && <button disabled={busy} onClick={() => void load(search, page.nextCursor!)}>Ещё слова</button>}
+			{page.nextCursor && <button disabled={busy} onClick={() => void load(search, page.nextCursor!)}>Więcej słówek</button>}
 		</>}
 		{storageError && <p className="error" role="alert">{storageError}</p>}
-		{busy && <p role="status">Загрузка…</p>}
+		{busy && <p role="status">Wczytywanie…</p>}
 	</section>;
 }

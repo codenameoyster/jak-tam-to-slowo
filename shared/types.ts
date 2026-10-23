@@ -33,7 +33,7 @@ export interface CardPage { cards: Card[]; nextCursor: string | null }
 export interface Progress { stage: number; dueAt: number; version: number; lastReviewedAt: number }
 export interface StudyCard { card: Card; progress: Progress | null }
 export interface StudyBatch { cards: StudyCard[]; serverTime: number; nextDueAt: number | null }
-export interface GradeResult { grade: Grade; correction: string; explanationRu: string }
+export interface GradeResult { grade: Grade; correction: string; explanation: string }
 export interface ReviewBase {
 	attemptId: string;
 	cardId: string;

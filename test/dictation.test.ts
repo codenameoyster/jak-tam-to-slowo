@@ -140,24 +140,24 @@ it.each([
 	else env.OPENAI_TRANSCRIPTION_API_KEY = key;
 	const observed = observe();
 	const response = await send();
-	await expectFailure(response, 503, 'dictation_unavailable', /владельца.*настройки/, observed);
+	await expectFailure(response, 503, 'dictation_unavailable', /właściciela.*ustawień/, observed);
 	expect(provider.calls).toHaveLength(0);
 });
 
 it.each([
-	{ name: 'no recognized speech', reply: () => Response.json({ text: ' \n ', languages: [] }), status: 422, code: 'no_speech', action: /Повторите запись/ },
-	{ name: 'empty transcript', reply: () => Response.json({ text: '', languages: [] }), status: 422, code: 'no_speech', action: /Повторите запись/ },
-	{ name: 'missing transcript', reply: () => Response.json({}), status: 503, code: 'dictation_unavailable', action: /Попробуйте снова/ },
-	{ name: 'non-string transcript', reply: () => Response.json({ text: 42 }), status: 503, code: 'dictation_unavailable', action: /Попробуйте снова/ },
-	{ name: 'null result', reply: () => Response.json(null), status: 503, code: 'dictation_unavailable', action: /Попробуйте снова/ },
-	{ name: 'malformed JSON', reply: () => new Response('private provider message test-transcription-key'), status: 503, code: 'dictation_unavailable', action: /Попробуйте снова/ },
-	{ name: 'empty result', reply: () => new Response(null), status: 503, code: 'dictation_unavailable', action: /Попробуйте снова/ },
-	{ name: 'provider authentication failure', reply: () => Response.json({ error: { message: 'private provider message test-transcription-key' } }, { status: 401 }), status: 503, code: 'dictation_unavailable', action: /владельца.*настройки/ },
-	{ name: 'provider permission failure', reply: () => Response.json({ error: { message: 'private provider message test-transcription-key' } }, { status: 403 }), status: 503, code: 'dictation_unavailable', action: /владельца.*настройки/ },
-	{ name: 'provider rate limit', reply: () => Response.json({ error: { message: 'private provider message test-transcription-key' } }, { status: 429 }), status: 503, code: 'dictation_unavailable', action: /Повторите позже/ },
-	{ name: 'provider server failure', reply: () => Response.json({ error: { message: 'private provider message test-transcription-key' } }, { status: 500 }), status: 503, code: 'dictation_unavailable', action: /Попробуйте снова/ },
-	{ name: 'provider redirect', reply: () => new Response(null, { status: 307, headers: { Location: 'https://elsewhere.test' } }), status: 503, code: 'dictation_unavailable', action: /Попробуйте снова/ },
-	{ name: 'network failure', reply: () => { throw new Error('private provider message test-transcription-key'); }, status: 503, code: 'dictation_unavailable', action: /Попробуйте снова/ },
+	{ name: 'no recognized speech', reply: () => Response.json({ text: ' \n ', languages: [] }), status: 422, code: 'no_speech', action: /Nagraj ponownie/ },
+	{ name: 'empty transcript', reply: () => Response.json({ text: '', languages: [] }), status: 422, code: 'no_speech', action: /Nagraj ponownie/ },
+	{ name: 'missing transcript', reply: () => Response.json({}), status: 503, code: 'dictation_unavailable', action: /Spróbuj ponownie/ },
+	{ name: 'non-string transcript', reply: () => Response.json({ text: 42 }), status: 503, code: 'dictation_unavailable', action: /Spróbuj ponownie/ },
+	{ name: 'null result', reply: () => Response.json(null), status: 503, code: 'dictation_unavailable', action: /Spróbuj ponownie/ },
+	{ name: 'malformed JSON', reply: () => new Response('private provider message test-transcription-key'), status: 503, code: 'dictation_unavailable', action: /Spróbuj ponownie/ },
+	{ name: 'empty result', reply: () => new Response(null), status: 503, code: 'dictation_unavailable', action: /Spróbuj ponownie/ },
+	{ name: 'provider authentication failure', reply: () => Response.json({ error: { message: 'private provider message test-transcription-key' } }, { status: 401 }), status: 503, code: 'dictation_unavailable', action: /właściciela.*ustawień/ },
+	{ name: 'provider permission failure', reply: () => Response.json({ error: { message: 'private provider message test-transcription-key' } }, { status: 403 }), status: 503, code: 'dictation_unavailable', action: /właściciela.*ustawień/ },
+	{ name: 'provider rate limit', reply: () => Response.json({ error: { message: 'private provider message test-transcription-key' } }, { status: 429 }), status: 503, code: 'dictation_unavailable', action: /Spróbuj później/ },
+	{ name: 'provider server failure', reply: () => Response.json({ error: { message: 'private provider message test-transcription-key' } }, { status: 500 }), status: 503, code: 'dictation_unavailable', action: /Spróbuj ponownie/ },
+	{ name: 'provider redirect', reply: () => new Response(null, { status: 307, headers: { Location: 'https://elsewhere.test' } }), status: 503, code: 'dictation_unavailable', action: /Spróbuj ponownie/ },
+	{ name: 'network failure', reply: () => { throw new Error('private provider message test-transcription-key'); }, status: 503, code: 'dictation_unavailable', action: /Spróbuj ponownie/ },
 ])('returns an actionable error for $name without a retry or audio storage', async ({ reply, status, code, action }) => {
 	provider.transcriptions = reply;
 	const observed = observe();
@@ -178,7 +178,7 @@ it.each([
 	const response = send();
 	try { await vi.waitFor(() => expect(provider.calls).toHaveLength(1)); }
 	finally { timer.abort(new DOMException('private provider message test-transcription-key', 'TimeoutError')); }
-	await expectFailure(await response, 503, 'dictation_unavailable', /вовремя.*Повторите/, observed);
+	await expectFailure(await response, 503, 'dictation_unavailable', /na czas.*Nagraj ponownie/, observed);
 	expect(timeouts).toHaveBeenCalledExactlyOnceWith(30_000);
 	expect(provider.calls).toHaveLength(1);
 });
