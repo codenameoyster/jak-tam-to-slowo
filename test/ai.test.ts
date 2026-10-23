@@ -9,8 +9,15 @@ import { seedLegacyConnection } from './legacy-connection';
 let provider: Awaited<ReturnType<typeof createOpenAI>>;
 const output = (text = '{"pl":"słowo"}') => ({ type: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text, annotations: [] }] });
 const completed = (text?: string) => ({ type: 'response.completed', response: { id: 'resp_test', status: 'completed', error: null, incomplete_details: null, output: [output(text)] } });
+const emptyCompleted = { type: 'response.completed', sequence_number: 69, response: { id: 'resp_public_1', object: 'response', status: 'completed', error: null, incomplete_details: null, output: [] } };
+const delta = (text: unknown, sequence_number = 4) => ({ type: 'response.output_text.delta', content_index: 0, delta: text, item_id: 'msg_public_1', logprobs: [], output_index: 0, sequence_number });
 const event = (value: { type: string; [key: string]: unknown }, ending = '\n') => `event: ${value.type}${ending}data: ${JSON.stringify(value)}${ending}${ending}`;
-function stream(chunks: (string | Uint8Array)[], fail = false) {
+const publicDeltas = [
+	'{"', 'kind', '":"', 'draft', '","', 'card', '":{"', 'pl', '":"', 'S', 'ł', 'owo', '","', 'ru', '":"', 'С', 'лов', 'о', '","',
+	'example', 'Pl', '":"', 'Nie', ' znam', ' tego', ' sł', 'owa', '.","', 'example', 'Ru', '":"', 'Я', ' не', ' знаю', ' этого', ' слова', '.","',
+	'meaning', 'Ru', '":"', 'Е', 'ди', 'ница', ' языка', ',', ' выраж', 'а', 'ющая', ' понят', 'ие', '.","', 'altern', 'atives', 'Pl', '":[]', ',"', 'altern', 'atives', 'Ru', '":[]', '}}',
+].map((text, index) => event(delta(text, index + 4)));
+function stream(chunks: (string | Uint8Array)[], fail = false, contentType: string | null = 'text/event-stream') {
 	return new Response(new ReadableStream<Uint8Array>({
 		pull(controller) {
 			const chunk = chunks.shift();
@@ -18,7 +25,7 @@ function stream(chunks: (string | Uint8Array)[], fail = false) {
 			else if (fail) controller.error(new Error('Socket closed with private provider text.'));
 			else controller.close();
 		},
-	}), { headers: { 'Content-Type': 'text/event-stream', 'x-request-id': 'req_stream' } });
+	}), { headers: { ...(contentType === null ? {} : { 'Content-Type': contentType }), 'x-request-id': 'req_stream' } });
 }
 async function connect(id: string, account: string) {
 	const cookie = await login(id);
@@ -49,21 +56,44 @@ it('uses the selected owner model and serializes input below fixed instructions'
 });
 
 it.each([
+	{ name: 'absent content type', contentType: null },
+	{ name: 'SSE content type', contentType: 'text/event-stream; charset=utf-8' },
+])('parses the public text deltas and empty completion with $name', async ({ contentType }) => {
+	provider.responses = () => stream([...publicDeltas, event(emptyCompleted)], false, contentType);
+	expect(await generate()).toEqual({ kind: 'draft', card: {
+		pl: 'Słowo', ru: 'Слово', examplePl: 'Nie znam tego słowa.', exampleRu: 'Я не знаю этого слова.',
+		meaningRu: 'Единица языка, выражающая понятие.', alternativesPl: [], alternativesRu: [],
+	} });
+});
+
+it.each([
+	{ name: 'full terminal text without duplicate deltas', chunks: [event(delta('{"pl":"słowo"}')), event(completed())], expected: { pl: 'słowo' } },
+	{ name: 'terminal text in preference to deltas', chunks: [event(delta('{"pl":"earlier"}')), event(completed('{"pl":"final"}'))], expected: { pl: 'final' } },
+	{ name: 'only output-text deltas', chunks: [event({ type: 'response.reasoning_text.delta', delta: 'ignored' }), event(delta('{"pl":')), event(delta('"słowo"}')), event({ type: 'response.output_text.done', text: 'ignored' }), event(emptyCompleted)], expected: { pl: 'słowo' } },
+])('parses $name', async ({ chunks, expected }) => {
+	provider.responses = () => stream([...chunks]);
+	expect(await generate()).toEqual(expected);
+});
+
+it.each([
 	{ name: 'LF', ending: '\n' },
 	{ name: 'CRLF', ending: '\r\n' },
 	{ name: 'CR', ending: '\r' },
 ])('parses $name event boundaries, data lines, and split UTF-8 bytes', async ({ ending }) => {
-	const encoded = new TextEncoder().encode(`: heartbeat${ending}${ending}event: response.completed${ending}data: {"type":"response.completed",${ending}data: "response":${JSON.stringify(completed().response)}}${ending}${ending}`);
+	const encoded = new TextEncoder().encode(`: heartbeat${ending}${ending}${event(delta('{"pl":"słowo"}'), ending)}event: response.completed${ending}data: {"type":"response.completed",${ending}data: "response":${JSON.stringify(emptyCompleted.response)}}${ending}${ending}`);
 	provider.responses = () => stream(Array.from(encoded, byte => Uint8Array.of(byte)));
 	expect(await generate()).toEqual({ pl: 'słowo' });
 });
 
-it('waits for the blank line that completes an SSE event', async () => {
+it('waits for a complete terminal event after valid text deltas and output-text-done', async () => {
 	const controller = new TransformStream<Uint8Array, Uint8Array>(), writer = controller.writable.getWriter();
 	provider.responses = () => new Response(controller.readable, { headers: { 'Content-Type': 'text/event-stream' } });
 	let settled = false;
 	const result = generate().finally(() => { settled = true; });
-	await writer.write(new TextEncoder().encode(event(completed()).slice(0, -1)));
+	await writer.write(new TextEncoder().encode(event(delta('{"pl":"słowo"}')) + event({ type: 'response.output_text.done', text: '{"pl":"słowo"}' })));
+	await scheduler.wait(10);
+	expect(settled).toBe(false);
+	await writer.write(new TextEncoder().encode(event(emptyCompleted).slice(0, -1)));
 	await scheduler.wait(10);
 	expect(settled).toBe(false);
 	await writer.write(new TextEncoder().encode('\n'));
@@ -71,28 +101,67 @@ it('waits for the blank line that completes an SSE event', async () => {
 });
 
 it.each([
-	{ name: 'text followed by EOF', chunks: [event({ type: 'response.output_text.delta', delta: '{"pl":"słowo"}' })], code: 'ai_interrupted', fail: false },
+	{ name: 'text followed by EOF', chunks: [], code: 'ai_interrupted', fail: false },
+	{ name: 'output-text-done followed by EOF', chunks: [event({ type: 'response.output_text.done', text: '{"pl":"słowo"}' })], code: 'ai_interrupted', fail: false },
+	{ name: 'DONE without completion', chunks: ['data: [DONE]\n\n'], code: 'ai_interrupted', fail: false },
 	{ name: 'socket loss after text', chunks: [event({ type: 'response.output_text.done', text: '{"pl":"słowo"}' })], code: 'ai_interrupted', fail: true },
-	{ name: 'unterminated completion', chunks: [event(completed()).trimEnd()], code: 'ai_interrupted', fail: false },
+	{ name: 'unterminated completion', chunks: [event(emptyCompleted).trimEnd()], code: 'ai_interrupted', fail: false },
 	{ name: 'incomplete response', chunks: [event({ type: 'response.incomplete' })], code: 'ai_incomplete', fail: false },
+	{ name: 'failed response after valid JSON', chunks: [event({ type: 'response.failed', response: { error: { code: 'subscription_sharing_user_unavailable' } } })], code: 'subscription_sharing_user_unavailable', fail: false },
 	{ name: 'malformed SSE JSON', chunks: ['event: response.completed\ndata: {broken}\n\n'], code: 'ai_invalid_response', fail: false },
 	{ name: 'malformed result JSON', chunks: [event(completed('{"pl":'))], code: 'ai_invalid_response', fail: false },
-	{ name: 'refusal event before completion', chunks: [event({ type: 'response.refusal.delta' }), event(completed())], code: 'ai_refused', fail: false },
+	{ name: 'refusal event before completion', chunks: [event({ type: 'response.refusal.delta' }), event(emptyCompleted)], code: 'ai_refused', fail: false },
 	{ name: 'missing completed output', chunks: [event({ type: 'response.completed', response: { status: 'completed' } })], code: 'ai_invalid_response', fail: false },
+	{ name: 'non-array completed output', chunks: [event({ ...emptyCompleted, response: { ...emptyCompleted.response, output: {} } })], code: 'ai_invalid_response', fail: false },
+	{ name: 'incomplete parent status', chunks: [event({ ...emptyCompleted, response: { ...emptyCompleted.response, status: 'incomplete' } })], code: 'ai_invalid_response', fail: false },
+	{ name: 'failed parent status', chunks: [event({ ...emptyCompleted, response: { ...emptyCompleted.response, status: 'failed' } })], code: 'ai_invalid_response', fail: false },
+	{ name: 'error in completed response', chunks: [event({ ...emptyCompleted, response: { ...emptyCompleted.response, error: { code: 'server_error' } } })], code: 'ai_invalid_response', fail: false },
+	{ name: 'incomplete details in completed response', chunks: [event({ ...emptyCompleted, response: { ...emptyCompleted.response, incomplete_details: { reason: 'max_output_tokens' } } })], code: 'ai_invalid_response', fail: false },
+	{ name: 'reasoning-only terminal output', chunks: [event({ ...emptyCompleted, response: { ...emptyCompleted.response, output: [{ type: 'reasoning' }] } })], code: 'ai_invalid_response', fail: false },
+	{ name: 'empty terminal message text', chunks: [event(completed(''))], code: 'ai_invalid_response', fail: false },
+	{ name: 'non-string delta before terminal output', chunks: [event(delta(12)), event(completed())], code: 'ai_invalid_response', fail: false },
+	{ name: 'missing delta before terminal output', chunks: [event(delta(undefined)), event(completed())], code: 'ai_invalid_response', fail: false },
 	{ name: 'mismatched event type', chunks: [`event: response.completed\ndata: ${JSON.stringify({ type: 'response.created' })}\n\n`], code: 'ai_invalid_response', fail: false },
-	{ name: 'oversized completed UTF-8 text', chunks: [event(completed(JSON.stringify({ pl: 'ł'.repeat(8192) })))], code: 'ai_invalid_response', fail: false },
+	{ name: 'oversized completed UTF-8 text by one byte', chunks: [event(completed(`"${'ł'.repeat(8191)}a"`))], code: 'ai_invalid_response', fail: false },
+	{ name: 'oversized partial line', chunks: ['data: ' + 'a'.repeat(256 * 1024)], code: 'ai_invalid_response', fail: false },
+	{ name: 'oversized partial event', chunks: ['data: ' + 'a'.repeat(256 * 1024) + '\n'], code: 'ai_invalid_response', fail: false },
 ])('rejects $name without repeating generation', async ({ chunks, code, fail }) => {
-	provider.responses = () => stream([...chunks], fail);
+	provider.responses = () => stream([event(delta('{"pl":"słowo"}')), ...chunks], fail);
 	await expect(generate()).rejects.toMatchObject({ status: 503, code });
 	expect(responses()).toHaveLength(1);
 	expect(provider.refreshTokens).toHaveLength(0);
 });
 
 it.each([
+	{ name: 'no text', chunks: [event(emptyCompleted)] },
+	{ name: 'empty delta text', chunks: [event(delta('')), event(emptyCompleted)] },
+	{ name: 'malformed accumulated JSON', chunks: [event(delta('{"pl":')), event(emptyCompleted)] },
+	{ name: 'only output-text-done', chunks: [event({ type: 'response.output_text.done', text: '{"pl":"słowo"}' }), event(emptyCompleted)] },
+	{ name: 'only reasoning deltas', chunks: [event({ type: 'response.reasoning_text.delta', delta: '{"pl":"słowo"}' }), event(emptyCompleted)] },
+	{ name: 'one-byte excess across UTF-8 deltas before EOF', chunks: [event(delta(`"${'ł'.repeat(4096)}`)), event(delta(`${'ł'.repeat(4095)}a"`))] },
+	{ name: 'one-byte excess across UTF-8 deltas before full terminal output', chunks: [event(delta(`"${'ł'.repeat(4096)}`)), event(delta(`${'ł'.repeat(4095)}a"`)), event(completed())] },
+])('rejects $name from text deltas', async ({ chunks }) => {
+	provider.responses = () => stream([...chunks]);
+	await expect(generate()).rejects.toMatchObject({ status: 503, code: 'ai_invalid_response' });
+	expect(responses()).toHaveLength(1);
+});
+
+it.each([
+	{ name: 'explicit plain text', response: () => stream([event(delta('{"pl":"słowo"}')), event(emptyCompleted)], false, 'text/plain') },
+	{ name: 'explicit JSON', response: () => stream([event(delta('{"pl":"słowo"}')), event(emptyCompleted)], false, 'application/json') },
+	{ name: 'explicit empty content type', response: () => stream([event(delta('{"pl":"słowo"}')), event(emptyCompleted)], false, '') },
+	{ name: 'missing body', response: () => new Response(null) },
+	{ name: 'headerless untyped SSE', response: () => stream(['data: {"pl":"słowo"}\n\n'], false, null) },
+])('rejects $name', async ({ response }) => {
+	provider.responses = response;
+	await expect(generate()).rejects.toMatchObject({ status: 503, code: 'ai_invalid_response' });
+});
+
+it.each([
 	{ name: 'refusal in completed output', content: [{ type: 'refusal', refusal: 'No.' }], status: 'completed', code: 'ai_refused' },
 	{ name: 'incomplete message in completed event', content: [{ type: 'output_text', text: '{"pl":"słowo"}' }], status: 'incomplete', code: 'ai_invalid_response' },
 ])('rejects $name', async ({ content, status, code }) => {
-	provider.responses = () => stream([event({ type: 'response.completed', response: { status: 'completed', output: [{ type: 'message', role: 'assistant', status, content }] } })]);
+	provider.responses = () => stream([event(delta('{"pl":"słowo"}')), event({ type: 'response.completed', response: { status: 'completed', output: [{ type: 'message', role: 'assistant', status, content }] } })]);
 	await expect(generate()).rejects.toMatchObject({ status: 503, code });
 });
 
@@ -106,7 +175,7 @@ it.each([
 	const beforeA = await record(USER_A.id), beforeB = await record(USER_B.id);
 	const log = vi.spyOn(console, 'error').mockImplementation(() => {});
 	provider.responses = () => streamed
-		? stream([event({ type: 'response.output_text.delta' }), event({ type: 'response.failed', response: { error: { code, message: 'private provider text' } } })])
+		? stream([event(delta('{"pl":"słowo"}')), event({ type: 'response.failed', response: { error: { code, message: 'private provider text' } } })])
 		: Response.json(status === 403 ? { detail: 'private provider text' } : { error: { code, message: 'private provider text' } }, { status, headers: { 'x-request-id': 'req_stream' } });
 	await expect(generate()).rejects.toMatchObject({ status, code });
 	expect(responses()).toHaveLength(1);
@@ -134,7 +203,7 @@ it('stops a stalled stream at the inference timeout without a retry', async () =
 	const timer = new AbortController(), entered = Promise.withResolvers<void>();
 	const timeouts = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(timer.signal);
 	provider.responses = request => new Response(new ReadableStream({ start(controller) {
-		controller.enqueue(new TextEncoder().encode(event({ type: 'response.output_text.delta' })));
+		controller.enqueue(new TextEncoder().encode(event(delta('{"pl":"słowo"}'))));
 		request.signal.addEventListener('abort', () => controller.error(request.signal.reason));
 		entered.resolve();
 	} }), { headers: { 'Content-Type': 'text/event-stream', 'x-request-id': 'req_timeout' } });
@@ -153,15 +222,18 @@ it.each([
 	{ name: 'invalid authorization context', code: 'chatpass_v2_invalid_authorization_context', status: 403 },
 	{ name: 'unauthorized scope', code: 'chatpass_v2_scope_not_authorized', status: 403 },
 ])('maps the streamed $name error without a retry', async ({ code, status }) => {
-	provider.responses = () => stream([event({ type: 'response.output_text.delta', delta: '{' }), event({ type: 'error', code, message: 'Provider detail.', param: null })]);
+	provider.responses = () => stream([event(delta('{"pl":"słowo"}')), event({ type: 'error', code, message: 'Provider detail.', param: null })]);
 	await expect(generate()).rejects.toMatchObject({ status, code });
 	expect(responses()).toHaveLength(1);
 	expect(provider.refreshTokens).toHaveLength(0);
 });
 
-it('accepts exactly 16 KiB of completed UTF-8 JSON text', async () => {
-	const text = `"${'ł'.repeat(8191)}"`;
-	provider.responses = () => stream([event(completed(text))]);
+it.each([
+	{ name: 'terminal output', chunks: [event(completed(`"${'ł'.repeat(8191)}"`))] },
+	{ name: 'accumulated deltas', chunks: [event(delta(`"${'ł'.repeat(4096)}`)), event(delta(`${'ł'.repeat(4095)}"`)), event(emptyCompleted)] },
+	{ name: 'deltas repeated in terminal output', chunks: [event(delta(`"${'ł'.repeat(4096)}`)), event(delta(`${'ł'.repeat(4095)}"`)), event(completed(`"${'ł'.repeat(8191)}"`))] },
+])('accepts exactly 16 KiB of UTF-8 JSON in $name', async ({ chunks }) => {
+	provider.responses = () => stream([...chunks]);
 	expect(await generate()).toBe('ł'.repeat(8191));
 });
 

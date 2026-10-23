@@ -4,10 +4,11 @@ export const CALLBACK = 'http://127.0.0.1:47319/auth/callback';
 export const SCOPE = 'openid profile email offline_access resource.invoke chatgpt.tokens.use.direct';
 
 export function responseStream(value: unknown): Response {
-	const event = { type: 'response.completed', response: { id: 'resp_test', status: 'completed', error: null, incomplete_details: null,
-		output: [{ type: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: JSON.stringify(value), annotations: [] }] }],
-	} };
-	return new Response(`event: response.completed\ndata: ${JSON.stringify(event)}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
+	const events = [
+		{ type: 'response.output_text.delta', content_index: 0, delta: JSON.stringify(value), item_id: 'msg_test', logprobs: [], output_index: 0, sequence_number: 0 },
+		{ type: 'response.completed', sequence_number: 1, response: { id: 'resp_test', object: 'response', status: 'completed', error: null, incomplete_details: null, output: [] } },
+	];
+	return new Response(new TextEncoder().encode(events.map(event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join('')));
 }
 
 export async function createOpenAI() {

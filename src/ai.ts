@@ -10,10 +10,10 @@ function object(value: unknown): Record<string, unknown> {
 	return value as Record<string, unknown>;
 }
 
-function completed(value: unknown): unknown {
+function completed(value: unknown, deltaText: string): unknown {
 	const response = object(value);
 	if (response.status !== 'completed' || response.error || response.incomplete_details || !Array.isArray(response.output)) throw invalid();
-	let text = '';
+	let text = response.output.length ? '' : deltaText;
 	for (const value of response.output) {
 		const item = object(value);
 		if (item.type === 'reasoning') continue;
@@ -30,9 +30,10 @@ function completed(value: unknown): unknown {
 }
 
 async function readStream(response: Response): Promise<unknown> {
-	if (response.headers.get('Content-Type')?.split(';')[0].trim() !== 'text/event-stream' || !response.body) throw invalid();
+	const contentType = response.headers.get('Content-Type');
+	if ((contentType !== null && contentType.split(';')[0].trim() !== 'text/event-stream') || !response.body) throw invalid();
 	const reader = response.body.getReader(), decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
-	let buffer = '', data = '', name = '', skipLF = false;
+	let buffer = '', data = '', name = '', text = '', skipLF = false;
 	try {
 		while (true) {
 			const { value, done } = await reader.read();
@@ -55,7 +56,12 @@ async function readStream(response: Response): Promise<unknown> {
 						if (event.type === 'error') throw providerError(200, event);
 						if (event.type === 'response.incomplete') throw new HttpError(503, 'ai_incomplete', 'ChatGPT не завершил ответ. Попробуйте снова.');
 						if (event.type.startsWith('response.refusal.')) throw refused();
-						if (event.type === 'response.completed') return completed(event.response);
+						if (event.type === 'response.output_text.delta') {
+							if (typeof event.delta !== 'string') throw invalid();
+							text += event.delta;
+							if (new TextEncoder().encode(text).byteLength > 16 * 1024) throw invalid();
+						}
+						if (event.type === 'response.completed') return completed(event.response, text);
 					}
 					data = ''; name = '';
 				} else if (!line.startsWith(':')) {
