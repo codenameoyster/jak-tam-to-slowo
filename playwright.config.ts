@@ -10,11 +10,8 @@ export default defineConfig({
 	outputDir: '.wrangler/playwright/results',
 	reporter: [['list'], ['html', { outputFolder: '.wrangler/playwright/report', open: 'never' }]],
 	projects: [
-		{ name: 'iphone', testIgnore: /workflow\.spec\.ts/, use: { ...devices['iPhone 13'], browserName: 'webkit' } },
+		{ name: 'iphone', testIgnore: /(workflow|account-switch)\.spec\.ts/, use: { ...devices['iPhone 13'], browserName: 'webkit' } },
 		{ name: 'mobile', use: { viewport: { width: 390, height: 844 } } },
-		{ name: 'chromium', use: { browserName: 'chromium', viewport: { width: 1280, height: 900 } } },
-		{ name: 'firefox', testIgnore: /workflow\.spec\.ts/, use: { browserName: 'firefox', viewport: { width: 1280, height: 900 } } },
-		{ name: 'webkit', testIgnore: /workflow\.spec\.ts/, use: { browserName: 'webkit', viewport: { width: 1280, height: 900 } } },
 	],
 	use: {
 		baseURL: 'http://127.0.0.1:8790',

@@ -185,6 +185,15 @@ it.each([
 	expect(response.headers.get('Set-Cookie')).toContain('Max-Age=0');
 });
 
+it('rejects a stale displayed account before logout', async () => {
+	const other = await login(USER_B.id);
+	const response = await request('/api/session', { method: 'DELETE', cookie: other, accountId: USER_A.id });
+	expect(response.status).toBe(409);
+	expect(await response.json()).toMatchObject({ code: 'account_mismatch' });
+	expect(response.headers.get('Set-Cookie')).toBeNull();
+	expect(await (await request('/api/session', { cookie: other })).json()).toMatchObject({ id: USER_B.id, direction: 'ru-pl' });
+});
+
 it('returns 429 without creating a session when the login limit is reached', async () => {
 	vi.spyOn(env.LOGIN_LIMITER, 'limit').mockResolvedValue({ success: false });
 	const response = await request('/api/session', { method: 'POST', body: { username: USER_A.username, password: USER_A.password } });

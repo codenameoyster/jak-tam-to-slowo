@@ -62,7 +62,7 @@ Anthropic bills API usage by tokens. Use a dedicated key in its own workspace. S
 
 ## Dictation
 
-Use **Диктовать** to record a short word or expression. Allow microphone access. Stop the recording within 30 seconds. The app replaces the text selected when the transcript arrives. If no text is selected, it adds the transcript after the current text. You can edit the result. Study uses the answer language. Add accepts Polish or Russian without a language selector, including for restored drafts. Cancel discards the clip. The complete upload must fit within 2 MiB.
+Use **Диктовать** to record a short word or expression. Allow microphone access. Stop the recording within 30 seconds. The app replaces the text selected when the transcript arrives. If no text is selected, it adds the transcript after the current text. You can edit the result. Study uses the answer language. Add accepts Polish or Russian without a language selector. Cancel discards the clip. The complete upload must fit within 2 MiB.
 
 The server sends one multipart request to [OpenAI file transcription](https://developers.openai.com/api/docs/guides/speech-to-text) with `model=gpt-transcribe`. Add sends `language=auto`, which sets repeated `languages[]` fields to `pl` and `ru`. Explicit `pl` or `ru` callers, including Study, send one language hint. The response contains only the transcript text. The upload uses a generic filename. The request has a 30-second timeout. The app keeps audio only in request memory. Browser tests use controlled recordings. Actual iOS Safari and Android Chrome recording, permissions, encoding, and recognition still need device checks over HTTPS. These checks have not passed yet.
 
@@ -73,7 +73,7 @@ Both learners use the server-only `OPENAI_TRANSCRIPTION_API_KEY` for speech. Ope
 Install the browser binaries and operating-system packages once on a supported host, such as Ubuntu 24.04:
 
 ```sh
-bunx playwright install --with-deps chromium firefox webkit
+bunx playwright install --with-deps chromium webkit
 ```
 
 Run this sequence from the repository root:
@@ -88,7 +88,7 @@ bun run test:browser
 bunx wrangler deploy --dry-run --outdir .wrangler/dry-run
 ```
 
-Browser tests run Chromium, Firefox, WebKit, and a Chromium mobile viewport. The two-learner workflow runs on mobile and desktop Chromium. It checks shared inference, requester-owned cards and progress, failed semantic checks, exact answers, lost-response retries, and archiving. API navigation tests check that `/api` and `/api/*` reach the Worker rather than the SPA fallback. For container checks, use `mcr.microsoft.com/playwright:v1.64.1-noble` with `--init` so stopped Worker processes are reaped.
+Browser tests run in two phone projects: WebKit with touch (iPhone 13) and Chromium without touch at 390 by 844 pixels. The two-learner workflow and the account-switch test run only in the Chromium project. The workflow checks shared inference, requester-owned cards and progress, failed semantic checks, exact answers, lost-response retries, and archiving. API navigation tests check that `/api` and `/api/*` reach the Worker rather than the SPA fallback. For container checks, use `mcr.microsoft.com/playwright:v1.64.1-noble` with `--init` so stopped Worker processes are reaped.
 
 Tests use fixed test accounts, fake Anthropic and transcription API keys, and a separate local D1 database. The test-only Worker supplies controlled Anthropic and OpenAI responses. Tests reset only `.wrangler/playwright/state`. Results, traces, and screenshots stay in `.wrangler/playwright/`. CI uses an Ubuntu host runner and needs no production credentials. CI performs no remote deployment or inference. A passing dry run checks packaging, not remote behavior.
 

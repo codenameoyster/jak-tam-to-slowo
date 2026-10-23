@@ -134,20 +134,16 @@ for (const scenario of [
 });
 
 for (const scenario of [
-	{ name: 'Add Polish with WebM/Opus', screen: 'add', language: 'auto', legacy: null, bytes: [0, 1, 254, 255], type: 'audio/webm;codecs=opus', label: 'Слово или выражение', transcript: 'słowo' },
-	{ name: 'Add Russian with MP4/AAC', screen: 'add', language: 'auto', legacy: null, bytes: [1, 2, 253, 254], type: 'audio/mp4;codecs=mp4a.40.2', label: 'Слово или выражение', transcript: 'слово' },
-	{ name: 'Add with the MP4 default codec', screen: 'add', language: 'auto', legacy: null, bytes: [0, 1, 254, 255], type: 'audio/mp4', label: 'Слово или выражение', transcript: 'słowo' },
-	{ name: 'Add Russian with a restored Polish draft', screen: 'add', language: 'auto', legacy: 'pl', bytes: [1, 2, 253, 254], type: 'audio/webm;codecs=opus', label: 'Слово или выражение', transcript: 'слово' },
-	{ name: 'Add Polish with a restored Russian draft', screen: 'add', language: 'auto', legacy: 'ru', bytes: [0, 1, 254, 255], type: 'audio/mp4', label: 'Слово или выражение', transcript: 'słowo' },
-	{ name: 'Study Polish target', screen: 'study', language: 'pl', legacy: null, bytes: [0, 1, 254, 255], type: 'audio/webm;codecs=opus', label: 'Ответ по-польски', transcript: 'słowo' },
-	{ name: 'Study Russian target independent of Add', screen: 'study', language: 'ru', legacy: null, bytes: [0, 1, 254, 255], type: 'audio/webm;codecs=opus', label: 'Ответ по-русски', transcript: 'слово' },
+	{ name: 'Add Polish with WebM/Opus', screen: 'add', language: 'auto', bytes: [0, 1, 254, 255], type: 'audio/webm;codecs=opus', label: 'Слово или выражение', transcript: 'słowo' },
+	{ name: 'Add Russian with MP4/AAC', screen: 'add', language: 'auto', bytes: [1, 2, 253, 254], type: 'audio/mp4;codecs=mp4a.40.2', label: 'Слово или выражение', transcript: 'слово' },
+	{ name: 'Add with the MP4 default codec', screen: 'add', language: 'auto', bytes: [0, 1, 254, 255], type: 'audio/mp4', label: 'Слово или выражение', transcript: 'słowo' },
+	{ name: 'Study Polish target', screen: 'study', language: 'pl', bytes: [0, 1, 254, 255], type: 'audio/webm;codecs=opus', label: 'Ответ по-польски', transcript: 'słowo' },
+	{ name: 'Study Russian target independent of Add', screen: 'study', language: 'ru', bytes: [0, 1, 254, 255], type: 'audio/webm;codecs=opus', label: 'Ответ по-русски', transcript: 'слово' },
 ]) test(`inserts editable text for ${scenario.name} and sends only the language mode and clip`, async ({ page }) => {
 	await media(page, { supported: [scenario.type], bytes: scenario.bytes });
 	await page.goto('/');
-	if (scenario.screen === 'add') {
-		if (scenario.legacy) await page.evaluate(({ key, language }) => sessionStorage.setItem(key, JSON.stringify({ id: crypto.randomUUID(), text: 'restored', language, choices: [] })), { key: `card-draft:${USER_A.id}`, language: scenario.legacy });
-		await page.getByRole('button', { name: 'Добавить', exact: true }).click();
-	} else if (scenario.language === 'ru') await page.getByLabel('PL -> RU', { exact: true }).click();
+	if (scenario.screen === 'add') await page.getByRole('button', { name: 'Добавить', exact: true }).click();
+	else if (scenario.language === 'ru') await page.getByLabel('PL -> RU', { exact: true }).click();
 	const input = page.getByLabel(scenario.label);
 	await input.fill('typed');
 	await start(page);

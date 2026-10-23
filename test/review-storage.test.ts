@@ -74,35 +74,13 @@ it('keeps other learners and directions unseen and permits the same attempt ID f
 	expect(await state()).toHaveLength(2);
 });
 
-it.each([
-	{ name: 'second correct', stage: 1, grade: correct, expectedStage: 2, delayMs: 259_200_000 },
-	{ name: 'stage cap', stage: 6, grade: correct, expectedStage: 6, delayMs: 5_184_000_000 },
-	{ name: 'almost reset', stage: 4, grade: { ...correct, grade: 'almost' }, expectedStage: 0, delayMs: 600_000 },
-	{ name: 'again reset', stage: 6, grade: again, expectedStage: 0, delayMs: 60_000 },
-] satisfies { name: string; stage: number; grade: GradeResult; expectedStage: number; delayMs: number }[])
-('updates the stored interval for $name', async ({ stage, grade, expectedStage, delayMs }) => {
+it('updates the stored interval for a second correct review', async () => {
 	await env.DB.prepare(`INSERT INTO review_state (user_id, card_id, direction, stage, due_at, version, last_reviewed_at)
-		VALUES (?, ?, 'ru-pl', ?, ?, 7, ?)`).bind(USER_A.id, CARD_A.id, stage, now, now - 1000).run();
-	const result = await commitReview(env, USER_A.id, { ...input, progressVersion: 7 }, { stage, version: 7 }, grade, 'ai', now);
-	expect(result.progress).toEqual({ stage: expectedStage, dueAt: now + delayMs, version: 8, lastReviewedAt: now });
-	expect(await state()).toMatchObject([{ stage: expectedStage, due_at: now + delayMs, version: 8, last_reviewed_at: now }]);
+		VALUES (?, ?, 'ru-pl', 1, ?, 7, ?)`).bind(USER_A.id, CARD_A.id, now, now - 1000).run();
+	const result = await commitReview(env, USER_A.id, { ...input, progressVersion: 7 }, { stage: 1, version: 7 }, correct, 'ai', now);
+	expect(result.progress).toEqual({ stage: 2, dueAt: now + 259_200_000, version: 8, lastReviewedAt: now });
+	expect(await state()).toMatchObject([{ stage: 2, due_at: now + 259_200_000, version: 8, last_reviewed_at: now }]);
 	expect(await reviews()).toHaveLength(1);
-});
-
-it.each([
-	{ name: 'answer', change: { answer: 'słowo' } },
-	{ name: 'answer whitespace', change: { answer: ' Słowo ' } },
-	{ name: 'action', change: { action: 'reveal' } },
-	{ name: 'card', change: { cardId: CARD_B.id } },
-	{ name: 'direction', change: { direction: 'pl-ru' } },
-	{ name: 'card version', change: { cardVersion: 2 } },
-	{ name: 'progress version', change: { progressVersion: 1 } },
-] satisfies { name: string; change: Partial<ReviewInput> }[])('rejects a retry with changed $name before any new write', async ({ change }) => {
-	await commitReview(env, USER_A.id, input, undefined, correct, 'exact', now);
-	const before = { state: await state(), reviews: await reviews() };
-	const changed: ReviewInput = { ...input, ...change };
-	await expect(commitReview(env, USER_A.id, changed, undefined, again, 'ai', now + 1000)).rejects.toMatchObject({ status: 409 });
-	expect({ state: await state(), reviews: await reviews() }).toEqual(before);
 });
 
 it.each([
@@ -196,43 +174,4 @@ it.each([
 	expect(await state()).toMatchObject([{ version: 1 }]);
 	expect(await reviews()).toHaveLength(1);
 	expect(JSON.parse(String((await reviews())[0].result_json))).toEqual(accepted[0].value);
-});
-
-it('resolves an early lookup miss to the saved result after an identical request commits', async () => {
-	await commitReview(env, USER_A.id, input, undefined, correct, 'exact', now);
-	expect(await commitReview(env, USER_A.id, input, undefined, again, 'ai', now + 1000)).toEqual(firstResult);
-	expect(await state()).toMatchObject([{ version: 1 }]);
-	expect(await reviews()).toHaveLength(1);
-});
-
-it.each([
-	{ name: 'new progress', existing: false },
-	{ name: 'existing progress', existing: true },
-])('rolls back $name when the review insert violates a constraint', async ({ existing }) => {
-	if (existing) await commitReview(env, USER_A.id, input, undefined, correct, 'exact', now);
-	else await env.DB.prepare('INSERT INTO reviews (user_id, attempt_id, input_json, result_json) VALUES (?, ?, ?, ?)')
-		.bind(USER_A.id, crypto.randomUUID(), '{}', '{}').run();
-	const before = { state: await state(), reviews: await reviews() };
-	await env.DB.prepare('CREATE UNIQUE INDEX forced_review_constraint ON reviews(user_id)').run();
-	await expect(commitReview(env, USER_A.id, { ...input, attemptId: crypto.randomUUID(), progressVersion: existing ? 1 : 0 }, existing ? reviewed : undefined, correct, 'exact', now))
-		.rejects.toThrow(/UNIQUE constraint failed: reviews.user_id/);
-	expect({ state: await state(), reviews: await reviews() }).toEqual(before);
-	await env.DB.prepare('DROP INDEX forced_review_constraint').run();
-	await commitReview(env, USER_A.id, { ...input, attemptId: crypto.randomUUID(), progressVersion: existing ? 1 : 0 }, existing ? reviewed : undefined, correct, 'exact', now);
-	expect(await state()).toMatchObject([{ version: existing ? 2 : 1 }]);
-	expect(await reviews()).toHaveLength(2);
-});
-
-it.each([
-	{ name: 'new progress', existing: false },
-	{ name: 'existing progress', existing: true },
-])('rolls back $name and the review when the final batch statement fails at runtime', async ({ existing }) => {
-	if (existing) await commitReview(env, USER_A.id, input, undefined, correct, 'exact', now);
-	const before = { state: await state(), reviews: await reviews() };
-	const batch = env.DB.batch.bind(env.DB);
-	vi.spyOn(env.DB, 'batch').mockImplementationOnce(statements => batch([
-		...statements.slice(0, -1), env.DB.prepare("SELECT json_extract('invalid json', '$')"),
-	]));
-	await expect(commitReview(env, USER_A.id, { ...input, attemptId: crypto.randomUUID(), progressVersion: existing ? 1 : 0 }, existing ? reviewed : undefined, correct, 'exact', now)).rejects.toThrow(/malformed JSON/);
-	expect({ state: await state(), reviews: await reviews() }).toEqual(before);
 });

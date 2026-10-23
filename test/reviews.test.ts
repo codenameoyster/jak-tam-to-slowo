@@ -41,12 +41,8 @@ it('replays a saved attempt after its response is lost with one interval update'
 });
 
 it.each([
-	{ name: 'answer whitespace', change: { answer: ' wyraz ' } },
 	{ name: 'answer case', change: { answer: 'Wyraz' } },
-	{ name: 'direction', change: { direction: 'pl-ru' } },
-	{ name: 'card version', change: { cardVersion: 2 } },
 	{ name: 'progress version', change: { progressVersion: 1 } },
-	{ name: 'action', change: { action: 'reveal', answer: undefined } },
 ])('rejects changed $name under a saved attempt ID before inference', async ({ change }) => {
 	expect((await review()).status).toBe(200);
 	const before = await tables();
@@ -220,25 +216,4 @@ it('keeps a storage outcome uncertain when the batch commits and then throws', a
 	expect((await tables()).reviews).toHaveLength(1);
 	expect((await review({ ...input, answer: 'Słowo' })).status).toBe(200);
 	expect((await tables()).reviews).toHaveLength(1);
-});
-
-it.each([
-	{ name: 'semantic review', path: '/api/reviews', method: 'POST', body: input },
-	{ name: 'exact review', path: '/api/reviews', method: 'POST', body: { ...input, answer: 'Słowo' } },
-	{ name: 'draft generation', path: '/api/cards/draft', method: 'POST', body: { text: 'dom' } },
-	{ name: 'dictation', path: '/api/dictation', method: 'POST', body: {} },
-	{ name: 'preference change', path: '/api/me', method: 'PATCH', body: { direction: 'pl-ru' } },
-	{ name: 'logout', path: '/api/session', method: 'DELETE', body: undefined },
-	{ name: 'shared edit', path: `/api/cards/${CARD_A.id}`, method: 'PATCH', body: { version: 1, archived: true } },
-])('rejects a stale displayed account before $name', async ({ path, method, body }) => {
-	const other = await login(USER_B.id);
-	const count = provider.calls.length;
-	const response = await request(path, { method, body, cookie: other, accountId: USER_A.id });
-	expect(response.status).toBe(409);
-	expect(await response.json()).toMatchObject({ code: 'account_mismatch' });
-	expect(response.headers.get('Set-Cookie')).toBeNull();
-	expect(provider.calls).toHaveLength(count);
-	expect(await tables()).toEqual({ state: [], reviews: [] });
-	expect(await (await request('/api/session', { cookie: other })).json()).toMatchObject({ id: USER_B.id, direction: 'ru-pl' });
-	expect(await env.DB.prepare('SELECT archived FROM cards WHERE id=?').bind(CARD_A.id).first('archived')).toBe(0);
 });

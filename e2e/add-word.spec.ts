@@ -40,57 +40,19 @@ for (const scenario of [
 	await expect(page.getByLabel('По-русски', { exact: true })).toHaveValue('Слово');
 });
 
-for (const scenario of [
-	{ name: 'legacy Polish selected meaning', language: 'pl' },
-	{ name: 'legacy Russian selected meaning', language: 'ru' },
-]) test(`restores the ${scenario.name} and generates with auto`, async ({ page }) => {
-	const retained = { id: crypto.randomUUID(), text: 'лук', meaningRu: 'Овощ', choices: [], card: { ...ONION_DRAFT, examplePl: 'To moja cebula.' } };
-	const draft = { ...retained, language: scenario.language };
+test('restores the selected meaning and resends it from Подготовить карточку', async ({ page }) => {
+	const draft = { id: crypto.randomUUID(), text: 'лук', meaningRu: 'Овощ', choices: [], card: { ...ONION_DRAFT, examplePl: 'To moja cebula.' } };
 	await page.evaluate(({ key, draft }) => sessionStorage.setItem(key, JSON.stringify(draft)), { key: `card-draft:${USER_A.id}`, draft });
 	await page.reload();
 	await page.getByRole('button', { name: 'Добавить', exact: true }).click();
 	await expect(page.getByLabel('Слово или выражение')).toHaveValue('лук');
 	await expect(page.getByText('Выбрано значение: Овощ', { exact: true })).toBeVisible();
 	await expect(page.getByLabel('Пример по-польски')).toHaveValue('To moja cebula.');
-	expect(await page.evaluate(key => JSON.parse(sessionStorage.getItem(key)!), `card-draft:${USER_A.id}`)).toMatchObject(retained);
 	const generated = page.waitForResponse(response => response.url().endsWith('/api/cards/draft'));
 	await page.getByRole('button', { name: 'Подготовить карточку', exact: true }).click();
 	expect((await generated).request().postDataJSON()).toEqual({ text: 'лук', meaningRu: 'Овощ' });
 	expect((await generated).status()).toBe(200);
-	await expect(page.getByLabel('Язык ввода')).toHaveCount(0);
 	await expect(page.getByLabel('По-польски', { exact: true })).toHaveValue('Cebula');
-});
-
-for (const scenario of [
-	{ name: 'legacy Polish pending save', language: 'pl' },
-	{ name: 'legacy Russian pending save', language: 'ru' },
-]) test(`retries the exact submission of a ${scenario.name}`, async ({ page, baseURL }) => {
-	const id = crypto.randomUUID(), card = { ...WORD_DRAFT, ru: 'Моё слово', examplePl: 'To moje słowo.' };
-	const submission = JSON.stringify({ id, ...card }, null, 2);
-	const draft = { id, text: 'słowo', language: scenario.language, meaningRu: 'Единица речи', choices: [], card, submission };
-	expect((await page.request.post('/api/cards', { headers: { Origin: baseURL! }, data: { id, ...card } })).status()).toBe(201);
-	createdIds.push(id);
-	await page.evaluate(({ key, draft }) => sessionStorage.setItem(key, JSON.stringify(draft)), { key: `card-draft:${USER_A.id}`, draft });
-	await page.reload();
-	await page.getByRole('button', { name: 'Добавить', exact: true }).click();
-	await expect(page.getByLabel('Язык ввода')).toHaveCount(0);
-	await expect(page.getByLabel('Слово или выражение')).toHaveValue('słowo');
-	await expect(page.getByLabel('Слово или выражение')).toBeDisabled();
-	await expect(page.getByLabel('По-русски', { exact: true })).toHaveValue('Моё слово');
-	await expect(page.getByLabel('Пример по-польски')).toHaveValue('To moje słowo.');
-	await expect(page.getByLabel('Пример по-польски')).toBeDisabled();
-	await expect(page.getByRole('button', { name: 'Подготовить карточку', exact: true })).toBeDisabled();
-	await expect(page.getByRole('button', { name: 'Удалить черновик', exact: true })).toBeDisabled();
-	expect(await page.evaluate(key => JSON.parse(sessionStorage.getItem(key)!).submission, `card-draft:${USER_A.id}`)).toBe(submission);
-	const retry = page.waitForResponse(response => response.url().endsWith('/api/cards') && response.request().method() === 'POST');
-	await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
-	expect((await retry).status()).toBe(200);
-	expect((await retry).request().postData()).toBe(submission);
-	await expect(page.getByRole('status')).toContainText('Карточка сохранена.');
-	expect(await page.evaluate(key => sessionStorage.getItem(key), `card-draft:${USER_A.id}`)).toBeNull();
-	const list: CardPage = await (await page.request.get('/api/cards')).json();
-	expect(list.cards.filter(item => item.id === id)).toHaveLength(1);
-	expect(list.cards.find(item => item.id === id)).toMatchObject({ ...card, version: 1 });
 });
 
 test('keeps an uncertain Save retry-only across reload and opens confirmed edits in Words', async ({ page, baseURL }) => {
@@ -172,10 +134,6 @@ test('recovers meaning choices and the selected meaning until logout independent
 	await expect(page.getByRole('button', { name: 'Овощ', exact: true })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Оружие для стрельбы стрелами', exact: true })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Сохранить', exact: true })).toHaveCount(0);
-	await page.evaluate(key => {
-		const draft = JSON.parse(sessionStorage.getItem(key)!);
-		sessionStorage.setItem(key, JSON.stringify({ ...draft, language: 'ru' }));
-	}, `card-draft:${USER_A.id}`);
 	await page.reload();
 	await page.getByRole('button', { name: 'Добавить', exact: true }).click();
 	await expect(page.getByRole('button', { name: 'Оружие для стрельбы стрелами', exact: true })).toBeVisible();

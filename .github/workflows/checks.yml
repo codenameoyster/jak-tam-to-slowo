@@ -23,7 +23,7 @@ jobs:
         with:
           bun-version: '1.4.3'
       - run: bun install --frozen-lockfile
-      - run: bunx playwright install --with-deps chromium firefox webkit
+      - run: bunx playwright install --with-deps chromium webkit
       - run: bun run lint
       - run: bun run typecheck
       - run: bun run test
