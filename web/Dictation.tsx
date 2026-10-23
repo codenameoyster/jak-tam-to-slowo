@@ -120,15 +120,14 @@ export function Dictation({ language, onText, disabled = false }: {
 		setState('transcribing');
 	}
 
+	// The caller puts the field and these elements in one `.dictation` row.
 	return <>
+		<button className="mic" type="button" data-state={state} aria-label={state === 'recording' ? 'Zatrzymaj nagrywanie' : 'Dyktuj'} disabled={disabled || state === 'requesting' || state === 'transcribing'} onMouseDown={event => event.preventDefault()} onClick={() => state === 'recording' ? finish() : void start()}><Icon name={state === 'recording' ? 'stop' : 'mic'} /></button>
 		<p className="hint dictation-hint" hidden={state !== 'idle' || !!error}>Po dyktowaniu sprawdź i popraw tekst w polu.</p>
-		<div className="dictation" data-state={state}>
-			<div className="dictation-status" hidden={state === 'idle' && !error}>
-				<p className="hint" aria-live="polite">{state === 'recording' ? 'Trwa nagrywanie. Najwyżej 30 sekund.' : state === 'requesting' ? 'Zezwól na dostęp do mikrofonu.' : state === 'transcribing' ? 'Rozpoznawanie mowy…' : ''}</p>
-				{error && <p className="error" role="alert">{error}</p>}
-				{state !== 'idle' && <button className="quiet" type="button" aria-label="Anuluj dyktowanie" onMouseDown={event => event.preventDefault()} onClick={cancel}>Anuluj</button>}
-			</div>
-			<button className="mic" type="button" aria-label={state === 'recording' ? 'Zatrzymaj nagrywanie' : 'Dyktuj'} disabled={disabled || state === 'requesting' || state === 'transcribing'} onMouseDown={event => event.preventDefault()} onClick={() => state === 'recording' ? finish() : void start()}><Icon name={state === 'recording' ? 'stop' : 'mic'} /></button>
+		<div className="dictation-status" hidden={state === 'idle' && !error}>
+			<p className="hint" aria-live="polite">{state === 'recording' ? 'Trwa nagrywanie. Najwyżej 30 sekund.' : state === 'requesting' ? 'Zezwól na dostęp do mikrofonu.' : state === 'transcribing' ? 'Rozpoznawanie mowy…' : ''}</p>
+			{error && <p className="error" role="alert">{error}</p>}
+			{state !== 'idle' && <button className="quiet" type="button" aria-label="Anuluj dyktowanie" onMouseDown={event => event.preventDefault()} onClick={cancel}>Anuluj</button>}
 		</div>
 	</>;
 }

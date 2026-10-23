@@ -102,9 +102,11 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy }: { userId: str
 		<form onSubmit={event => { event.preventDefault(); void generate(); }}>
 			<fieldset disabled={locked}>
 				<label htmlFor="draft-text">Słowo lub wyrażenie</label>
-				<input ref={input} id="draft-text" value={draft?.text ?? ''} maxLength={200} required onChange={event => change({ text: event.target.value, meaningRu: undefined, choices: [], card: undefined })} />
+				<div className="dictation">
+					<input ref={input} id="draft-text" value={draft?.text ?? ''} maxLength={200} required onChange={event => change({ text: event.target.value, meaningRu: undefined, choices: [], card: undefined })} />
+					{!draft?.card && <Dictation key={dictationId} language="auto" disabled={locked} onText={text => { if (input.current) change({ text: dictatedValue(input.current, text), meaningRu: undefined, choices: [], card: undefined }); }} />}
+				</div>
 			</fieldset>
-			{!draft?.card && <Dictation key={dictationId} language="auto" disabled={locked} onText={text => { if (input.current) change({ text: dictatedValue(input.current, text), meaningRu: undefined, choices: [], card: undefined }); }} />}
 			<button className="primary" disabled={locked || !query}>Przygotuj fiszkę</button>
 		</form>
 		{searchError && <p className="hint" role="status">{searchError}</p>}

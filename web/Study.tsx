@@ -37,8 +37,10 @@ export function Study({ user, onDirection, onBusy }: {
 		</div>}
 		{study.state !== 'feedback' && (current || study.locked) && <form onSubmit={event => { event.preventDefault(); void study.check(); }}>
 			<label htmlFor="study-answer">{polish ? 'Odpowiedź po polsku' : 'Odpowiedź po rosyjsku'}</label>
-			<input ref={input} id="study-answer" lang={target} maxLength={500} autoComplete="off" value={study.answer} disabled={study.locked} onChange={event => study.setAnswer(event.target.value)} />
-			<Dictation key={`${current?.id}:${current?.version}`} language={target} disabled={study.locked || study.state !== 'answering'} onText={text => { if (input.current) study.setAnswer(dictatedValue(input.current, text)); }} />
+			<div className="dictation">
+				<input ref={input} id="study-answer" lang={target} maxLength={500} autoComplete="off" value={study.answer} disabled={study.locked} onChange={event => study.setAnswer(event.target.value)} />
+				<Dictation key={`${current?.id}:${current?.version}`} language={target} disabled={study.locked || study.state !== 'answering'} onText={text => { if (input.current) study.setAnswer(dictatedValue(input.current, text)); }} />
+			</div>
 			<div className="study-actions">
 				<button className="primary" type="submit" disabled={study.locked || study.state !== 'answering' || !study.answer.trim()}>Sprawdź</button>
 				<button type="button" disabled={study.locked || study.state !== 'answering'} onClick={() => void study.reveal()}>Pokaż odpowiedź</button>

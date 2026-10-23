@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import type { CardPage, ReviewInput } from '../shared/types';
 import { CARD_A, CARD_B, USER_A } from '../test/fixtures';
 
@@ -365,6 +365,23 @@ test.describe('phone interface', () => {
 		}))).toEqual([]);
 	}
 
+	// The mic is on the field row: its vertical center is inside the field, it is right of the field and above the limit.
+	async function row(field: Locator, mic: Locator, limit: number) {
+		const box = (await field.boundingBox())!, button = (await mic.boundingBox())!;
+		expect(button.y + button.height / 2).toBeGreaterThan(box.y);
+		expect(button.y + button.height / 2).toBeLessThan(box.y + box.height);
+		expect(button.x).toBeGreaterThanOrEqual(box.x + box.width);
+		expect(button.y + button.height).toBeLessThanOrEqual(limit);
+	}
+
+	async function clear(page: Page) {
+		const mic = (await page.locator('.mic').boundingBox())!;
+		expect(await page.locator('button:not(.mic)').evaluateAll((buttons, mic) => buttons.flatMap(button => {
+			const rect = button.getBoundingClientRect();
+			return rect.width && rect.left < mic.x + mic.width && rect.right > mic.x && rect.top < mic.y + mic.height && rect.bottom > mic.y ? [button.textContent] : [];
+		}), mic)).toEqual([]);
+	}
+
 	for (const scenario of [
 		{ name: '390 portrait', width: 390, height: 844, large: false },
 		{ name: '320 portrait', width: 320, height: 568, large: false },
@@ -383,18 +400,11 @@ test.describe('phone interface', () => {
 		if (scenario.spaced) await page.addStyleTag({ content: '.page-heading h1 { letter-spacing: .12em; }' });
 		const nav = page.getByRole('navigation', { name: 'Sekcje' });
 		const mic = page.getByRole('button', { name: 'Dyktuj', exact: true });
-		const navigation = (await nav.boundingBox())!, microphone = (await mic.boundingBox())!;
+		const navigation = (await nav.boundingBox())!;
 		expect.soft(navigation.y).toBeGreaterThan(scenario.height - 130);
 		expect(navigation.y + navigation.height).toBeLessThanOrEqual(scenario.height);
-		expect.soft(microphone.width).toBeGreaterThanOrEqual(60);
-		expect.soft(microphone.width).toBeLessThanOrEqual(64);
-		expect.soft(microphone.height).toBe(microphone.width);
-		expect.soft(microphone.x).toBeGreaterThan(scenario.width / 2);
-		expect.soft(microphone.y + microphone.height).toBeLessThan(navigation.y);
-		if (scenario.height >= 568 && !scenario.large) {
-			const field = (await input.boundingBox())!;
-			expect(field.y + field.height + 8).toBeLessThanOrEqual(microphone.y);
-		}
+		await row(input, mic, navigation.y);
+		await clear(page);
 		const term = (await page.getByTestId('study-term').boundingBox())!;
 		expect(term.y + term.height).toBeLessThan(navigation.y);
 		await targets(page);
@@ -407,6 +417,8 @@ test.describe('phone interface', () => {
 		await page.getByRole('button', { name: 'Dodaj', exact: true }).tap();
 		await expect(page.getByLabel('Słowo lub wyrażenie')).toBeVisible();
 		await page.evaluate(() => window.scrollTo(0, 0));
+		await row(page.getByLabel('Słowo lub wyrażenie'), mic, navigation.y);
+		await clear(page);
 		await targets(page);
 		await shot('add');
 		await page.getByRole('button', { name: 'Słówka', exact: true }).tap();
@@ -487,20 +499,16 @@ test.describe('phone interface', () => {
 		}, scenario);
 		const geometry = async () => {
 			await expect.poll(async () => {
-				const mic = (await page.getByRole('button', { name: /^(Dyktuj|Zatrzymaj nagrywanie)$/ }).boundingBox())!;
-				return mic.y + mic.height;
+				const field = (await input.boundingBox())!;
+				return field.y + field.height;
 			}).toBeLessThanOrEqual(scenario.height + scenario.offset);
-			const field = (await input.boundingBox())!, controls = (await page.locator('.dictation').boundingBox())!;
-			expect(controls.y).toBeGreaterThanOrEqual(scenario.offset);
-			expect(field.y).toBeGreaterThanOrEqual(scenario.offset);
-			expect(field.y + field.height).toBeLessThanOrEqual(scenario.offset + scenario.height);
-			expect(field.y + field.height).toBeLessThanOrEqual(controls.y);
-			for (const control of await page.locator('.dictation button, .dictation [aria-live], .dictation [role="alert"]').all()) {
+			for (const control of [input, ...await page.locator('.dictation button, .dictation [aria-live], .dictation [role="alert"]').all()]) {
 				if (!await control.isVisible()) continue;
 				const rect = (await control.boundingBox())!;
 				expect(rect.y).toBeGreaterThanOrEqual(scenario.offset);
 				expect(rect.y + rect.height).toBeLessThanOrEqual(scenario.height + scenario.offset);
 			}
+			await clear(page);
 		};
 		await geometry();
 		await page.evaluate(() => window.visualViewport!.dispatchEvent(new Event('resize')));
@@ -524,6 +532,14 @@ test.describe('phone interface', () => {
 		} finally { release.resolve(); }
 		await expect(page.getByRole('button', { name: 'Dyktuj', exact: true })).toBeEnabled();
 		await expect(input).toHaveValue('');
+		// A viewport scroll without a keyboard change keeps the user's scroll position.
+		await expect(input).toBeFocused();
+		await page.evaluate(() => window.scrollTo(0, 0));
+		await page.evaluate(() => new Promise<void>(resolve => {
+			window.visualViewport!.dispatchEvent(new Event('scroll'));
+			requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+		}));
+		expect(await page.evaluate(() => scrollY)).toBe(0);
 		await page.evaluate(height => {
 			(document.activeElement as HTMLElement).blur();
 			Object.defineProperties(window.visualViewport!, { height: { configurable: true, value: height }, offsetTop: { configurable: true, value: 0 } });
@@ -531,7 +547,6 @@ test.describe('phone interface', () => {
 		}, scenario.layoutHeight);
 		await expect(nav).toBeVisible();
 		expect((await nav.boundingBox())!.y).toBeGreaterThan(scenario.layoutHeight - 124);
-		expect((await page.getByRole('button', { name: 'Dyktuj', exact: true }).boundingBox())!.y).toBeGreaterThan(scenario.layoutHeight - 244);
 		await page.evaluate(height => {
 			Object.defineProperties(window.visualViewport!, { height: { configurable: true, value: height / 2 }, scale: { configurable: true, value: 2 } });
 			window.visualViewport!.dispatchEvent(new Event('resize'));
@@ -548,7 +563,7 @@ test.describe('phone interface', () => {
 		await page.screenshot({ path: `.wrangler/playwright/interface-${testInfo.project.name}-390-recording.png`, animations: 'disabled', scale: 'css' });
 		const stop = page.getByRole('button', { name: 'Zatrzymaj nagrywanie', exact: true });
 		const unfocusedOutline = await stop.evaluate(button => getComputedStyle(button).outline);
-		await page.getByRole('button', { name: 'Anuluj dyktowanie', exact: true }).focus();
+		await page.getByLabel('Odpowiedź po polsku').focus();
 		await page.keyboard.press('Tab');
 		await expect(stop).toBeFocused();
 		expect(await stop.evaluate(button => button.matches(':focus-visible'))).toBe(true);

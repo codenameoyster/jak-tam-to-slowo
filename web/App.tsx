@@ -49,15 +49,21 @@ export function App() {
 		const viewport = window.visualViewport;
 		if (!viewport) return;
 		const root = document.documentElement;
-		let frame = 0;
-		function update() {
+		let frame = 0, focused = false, shown = 0;
+		// Scroll only on focus or a keyboard height change. iOS also scrolls to the focused field, and a scroll on each viewport event makes the page jump.
+		function update(event: Event) {
+			focused ||= event.type === 'focusin';
 			cancelAnimationFrame(frame);
 			frame = requestAnimationFrame(() => {
-				const keyboard = viewport!.scale === 1 && innerHeight - viewport!.height > 120;
+				const height = innerHeight - viewport!.height;
+				const keyboard = viewport!.scale === 1 && height > 120;
+				const correct = keyboard && (focused || height !== shown);
+				focused = false;
+				shown = keyboard ? height : 0;
 				root.dataset.keyboard = String(keyboard);
-				root.style.setProperty('--keyboard-inset', `${keyboard ? Math.max(0, innerHeight - viewport!.height - viewport!.offsetTop) : 0}px`);
+				root.style.setProperty('--keyboard-inset', `${keyboard ? Math.max(0, height - viewport!.offsetTop) : 0}px`);
 				const field = document.activeElement;
-				if (!keyboard || !(field instanceof HTMLElement) || !field.matches('input, textarea, select')) return;
+				if (!correct || !(field instanceof HTMLElement) || !field.matches('input, textarea, select')) return;
 				const rect = field.getBoundingClientRect();
 				const top = viewport!.offsetTop + 12;
 				const bottom = Math.max(top + rect.height, viewport!.offsetTop + viewport!.height - 180);
