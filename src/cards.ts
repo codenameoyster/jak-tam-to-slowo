@@ -4,12 +4,12 @@ import { HttpError, methods, object, readJson, text } from './http';
 
 const contentKeys: (keyof CardContent)[] = ['pl', 'ru', 'examplePl', 'exampleRu', 'meaningRu', 'alternativesPl', 'alternativesRu'];
 const idPattern = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/;
-const columns = `id, pl, ru, example_pl AS examplePl, example_ru AS exampleRu, meaning_ru AS meaningRu,
-	alternatives_pl AS alternativesPl, alternatives_ru AS alternativesRu, version, archived,
-	created_by AS createdBy, created_at AS createdAt, updated_at AS updatedAt`;
-type CardRow = Omit<Card, 'archived' | 'alternativesPl' | 'alternativesRu'> & { archived: number; alternativesPl: string; alternativesRu: string };
+export const columns = `cards.id, cards.pl, cards.ru, cards.example_pl AS examplePl, cards.example_ru AS exampleRu, cards.meaning_ru AS meaningRu,
+	cards.alternatives_pl AS alternativesPl, cards.alternatives_ru AS alternativesRu, cards.version, cards.archived,
+	cards.created_by AS createdBy, cards.created_at AS createdAt, cards.updated_at AS updatedAt`;
+export type CardRow = Omit<Card, 'archived' | 'alternativesPl' | 'alternativesRu'> & { archived: number; alternativesPl: string; alternativesRu: string };
 
-function fromRow(row: CardRow): Card {
+export function fromRow(row: CardRow): Card {
 	return { ...row, archived: row.archived === 1, alternativesPl: JSON.parse(row.alternativesPl), alternativesRu: JSON.parse(row.alternativesRu) };
 }
 

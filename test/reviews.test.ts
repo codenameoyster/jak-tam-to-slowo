@@ -180,13 +180,17 @@ it.each([
 	expect(await tables()).toEqual({ state: [], reviews: [] });
 });
 
-it('uses the server key for the other learner’s semantic review', async () => {
-	cookie = await login(USER_B.id);
+it('uses the server key for the other learner’s semantic review of the same attempt', async () => {
 	expect((await review()).status).toBe(200);
-	expect(provider.calls[0].headers.get('Authorization')).toBe('Bearer test-anthropic-key');
-	expect(await provider.calls[0].json()).toMatchObject({ model: 'claude-sonnet-5-5', output_config: { effort: 'high' } });
-	expect((await tables()).state).toMatchObject([{ user_id: USER_B.id }]);
-	expect((await tables()).reviews).toMatchObject([{ user_id: USER_B.id }]);
+	cookie = await login(USER_B.id);
+	const response = await review();
+	expect(response.status).toBe(200);
+	expect(await response.json()).toMatchObject({ progress: { version: 1 } });
+	expect(provider.calls).toHaveLength(2);
+	expect(provider.calls[1].headers.get('Authorization')).toBe('Bearer test-anthropic-key');
+	expect(await provider.calls[1].json()).toMatchObject({ model: 'claude-sonnet-5-5', output_config: { effort: 'high' } });
+	expect((await tables()).state).toMatchObject([{ user_id: USER_A.id }, { user_id: USER_B.id }]);
+	expect((await tables()).reviews).toMatchObject([{ user_id: USER_A.id }, { user_id: USER_B.id }]);
 });
 
 it('requires an authenticated same-origin POST', async () => {
@@ -209,7 +213,7 @@ it('marks grading without the AI key as editable without writing a review', asyn
 
 it('keeps a storage outcome uncertain when the batch commits and then throws', async () => {
 	const batch = env.DB.batch.bind(env.DB);
-	vi.spyOn(env.DB, 'batch').mockImplementationOnce(async statements => { await batch(statements); throw new Error('Lost database response.'); });
+	vi.spyOn(env.DB, 'batch').mockImplementationOnce(batch).mockImplementationOnce(async statements => { await batch(statements); throw new Error('Lost database response.'); });
 	const response = await review({ ...input, answer: 'Słowo' });
 	expect(response.status).toBe(500);
 	expect(response.headers.get('X-Review-Recovery')).toBeNull();

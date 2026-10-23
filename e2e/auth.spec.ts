@@ -19,6 +19,12 @@ for (const scenario of [
 	expect(await response!.json()).toMatchObject({ code: 'unauthorized' });
 });
 
+test('caches a hashed asset for one year', async ({ page }) => {
+	await page.goto('/');
+	const stylesheet = await page.locator('link[rel="stylesheet"]').getAttribute('href');
+	expect((await page.request.get(stylesheet!)).headers()['cache-control']).toBe('public, max-age=31536000, immutable');
+});
+
 test('keeps the account and direction after reload and revokes access at logout', async ({ page }, testInfo) => {
 	await page.goto('/');
 	expect((await page.request.get('/api/session')).status()).toBe(401);

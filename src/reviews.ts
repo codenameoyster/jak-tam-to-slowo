@@ -1,11 +1,12 @@
 import type { GradeResult, ReviewInput, ReviewResult, User } from '../shared/types';
 import type { Env } from './index';
-import { readCard } from './cards';
+import { type CardRow, columns, fromRow } from './cards';
 import { gradeAnswer } from './grade';
 import { HttpError, methods, object, readJson } from './http';
 import { advance } from './schedule';
 
 interface ReviewRow { input_json: string; result_json: string }
+interface StateRow { stage: number; version: number }
 
 function identity(input: ReviewInput): string {
 	return JSON.stringify({
@@ -14,21 +15,13 @@ function identity(input: ReviewInput): string {
 	});
 }
 
-function replay(row: ReviewRow | null | undefined, input: ReviewInput): ReviewResult | null {
+function replay(row: ReviewRow | undefined, input: ReviewInput): ReviewResult | null {
 	if (!row) return null;
 	if (row.input_json !== identity(input)) throw new HttpError(409, 'review_conflict', 'Эта попытка уже сохранена с другим ответом.');
 	return JSON.parse(row.result_json);
 }
 
-export async function findReview(env: Env, userId: string, input: ReviewInput): Promise<ReviewResult | null> {
-	const row = await env.DB.prepare('SELECT input_json, result_json FROM reviews WHERE user_id = ? AND attempt_id = ?')
-		.bind(userId, input.attemptId).first<ReviewRow>();
-	return replay(row, input);
-}
-
-export async function commitReview(env: Env, userId: string, input: ReviewInput, grade: GradeResult, source: ReviewResult['source'], now: number): Promise<ReviewResult> {
-	const current = await env.DB.prepare('SELECT stage, version FROM review_state WHERE user_id = ? AND card_id = ? AND direction = ?')
-		.bind(userId, input.cardId, input.direction).first<{ stage: number; version: number }>();
+export async function commitReview(env: Env, userId: string, input: ReviewInput, current: StateRow | undefined, grade: GradeResult, source: ReviewResult['source'], now: number): Promise<ReviewResult> {
 	const progress = { ...advance(current?.stage ?? 0, grade.grade, now), version: input.progressVersion + 1, lastReviewedAt: now };
 	const result: ReviewResult = { ...grade, attemptId: input.attemptId, cardId: input.cardId, direction: input.direction, source, progress };
 	const [, , saved] = await env.DB.batch<ReviewRow>([
@@ -67,9 +60,15 @@ export async function handleReview(request: Request, env: Env, user: User): Prom
 	if (action === 'answer' && typeof answer === 'string' && answer.length <= 500) input = { ...base, direction, action, answer };
 	else if (action === 'reveal' && !('answer' in data)) input = { ...base, direction, action };
 	else throw new HttpError(400, 'invalid_input', 'Укажите ответ или выберите показ ответа.');
-	const saved = await findReview(env, user.id, input);
+	const [review, row, state] = await env.DB.batch([
+		env.DB.prepare('SELECT input_json, result_json FROM reviews WHERE user_id = ? AND attempt_id = ?').bind(user.id, attemptId),
+		env.DB.prepare(`SELECT ${columns} FROM cards WHERE id = ?`).bind(cardId),
+		env.DB.prepare('SELECT stage, version FROM review_state WHERE user_id = ? AND card_id = ? AND direction = ?').bind(user.id, cardId, direction),
+	]);
+	const saved = replay(review.results[0] as ReviewRow | undefined, input);
 	if (saved) return Response.json(saved);
-	const card = await readCard(env, cardId);
+	if (!row.results[0]) throw new HttpError(404, 'not_found', 'Карточка не найдена.');
+	const card = fromRow(row.results[0] as CardRow);
 	if (card.archived || card.version !== cardVersion) throw new HttpError(409, 'version_conflict', 'Карточка уже изменена. Откройте следующую карточку.');
 	let graded: { result: GradeResult; source: ReviewResult['source'] };
 	try {
@@ -80,5 +79,5 @@ export async function handleReview(request: Request, env: Env, user: User): Prom
 		if (!(error instanceof HttpError)) throw error;
 		return Response.json({ error: error.message, code: error.code }, { status: error.status, headers: { 'X-Review-Recovery': 'editable' } });
 	}
-	return Response.json(await commitReview(env, user.id, input, graded.result, graded.source, Date.now()));
+	return Response.json(await commitReview(env, user.id, input, state.results[0] as StateRow | undefined, graded.result, graded.source, Date.now()));
 }
