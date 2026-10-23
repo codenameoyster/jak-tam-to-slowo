@@ -13,7 +13,7 @@ interface Draft {
 	submission?: string;
 }
 
-export function AddWord({ userId, onOpen, busy, onBusy: setBusy, onExpired }: { userId: string; onOpen(card: Card): void; busy: boolean; onBusy(busy: boolean): void; onExpired(): void }) {
+export function AddWord({ userId, onOpen, busy, onBusy: setBusy }: { userId: string; onOpen(card: Card): void; busy: boolean; onBusy(busy: boolean): void }) {
 	const key = `card-draft:${userId}`;
 	const [draft, setDraft] = useState<Draft | null>(() => {
 		try { return JSON.parse(sessionStorage.getItem(key) ?? 'null'); } catch { return null; }
@@ -65,8 +65,7 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy, onExpired }: { 
 			const result = await api<DraftResult>('/cards/draft', { method: 'POST', body: JSON.stringify({ text: draft.text, meaningRu }) });
 			change(result.kind === 'draft' ? { card: result.card, choices: [] } : { choices: result.choices, card: undefined });
 		} catch (error) {
-			if (error instanceof ApiError && error.code === 'unauthorized') onExpired();
-			else setError(error instanceof ApiError ? error.message : 'Нет связи с сервером. Черновик остался в форме. Попробуйте снова.');
+			setError(error instanceof ApiError ? error.message : 'Нет связи с сервером. Черновик остался в форме. Попробуйте снова.');
 		}
 		finally { setBusy(false); }
 	}
@@ -90,7 +89,6 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy, onExpired }: { 
 			setDraft(null);
 			setSaved(card);
 		} catch (error) {
-			if (error instanceof ApiError && error.code === 'unauthorized') { onExpired(); return; }
 			if (error instanceof ApiError && (error.status === 400 || error.status === 413)) setDraft({ ...pending, submission: undefined });
 			setError(error instanceof ApiError ? error.message : 'Нет связи с сервером. Сохранение не подтверждено. Попробуйте сохранить ещё раз.');
 		}
@@ -106,7 +104,7 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy, onExpired }: { 
 				<label htmlFor="draft-text">Слово или выражение</label>
 				<input ref={input} id="draft-text" value={draft?.text ?? ''} maxLength={200} required onChange={event => change({ text: event.target.value, meaningRu: undefined, choices: [], card: undefined })} />
 			</fieldset>
-			{!draft?.card && <Dictation key={dictationId} language="auto" disabled={locked} onExpired={onExpired} onText={text => { if (input.current) change({ text: dictatedValue(input.current, text), meaningRu: undefined, choices: [], card: undefined }); }} />}
+			{!draft?.card && <Dictation key={dictationId} language="auto" disabled={locked} onText={text => { if (input.current) change({ text: dictatedValue(input.current, text), meaningRu: undefined, choices: [], card: undefined }); }} />}
 			<button className="primary" disabled={locked || !query}>Подготовить карточку</button>
 		</form>
 		{searchError && <p className="hint" role="status">{searchError}</p>}

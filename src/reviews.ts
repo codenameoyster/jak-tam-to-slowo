@@ -2,7 +2,7 @@ import type { GradeResult, ReviewInput, ReviewResult, User } from '../shared/typ
 import type { Env } from './index';
 import { type CardRow, columns, fromRow } from './cards';
 import { gradeAnswer } from './grade';
-import { HttpError, methods, object, readJson } from './http';
+import { HttpError, methods, object, readJson, uuidPattern } from './http';
 import { advance } from './schedule';
 
 interface ReviewRow { input_json: string; result_json: string }
@@ -50,8 +50,7 @@ export async function handleReview(request: Request, env: Env, user: User): Prom
 	methods(request, ['POST']);
 	const data = object(await readJson(request), ['attemptId', 'cardId', 'cardVersion', 'progressVersion', 'direction', 'action', 'answer']);
 	const { attemptId, cardId, cardVersion, progressVersion, direction, action, answer } = data;
-	const idPattern = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/;
-	if (typeof attemptId !== 'string' || !idPattern.test(attemptId) || typeof cardId !== 'string' || !idPattern.test(cardId)
+	if (typeof attemptId !== 'string' || !uuidPattern.test(attemptId) || typeof cardId !== 'string' || !uuidPattern.test(cardId)
 		|| typeof cardVersion !== 'number' || !Number.isSafeInteger(cardVersion) || cardVersion < 1
 		|| typeof progressVersion !== 'number' || !Number.isSafeInteger(progressVersion) || progressVersion < 0
 		|| (direction !== 'ru-pl' && direction !== 'pl-ru')) throw new HttpError(400, 'invalid_input', 'Проверьте карточку, версию и направление.');

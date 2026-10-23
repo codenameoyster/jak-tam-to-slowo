@@ -1,9 +1,8 @@
 import type { Card, CardContent, CardPage, User } from '../shared/types';
 import type { Env } from './index';
-import { HttpError, methods, object, readJson, text } from './http';
+import { HttpError, methods, object, readJson, text, uuidPattern } from './http';
 
 const contentKeys: (keyof CardContent)[] = ['pl', 'ru', 'examplePl', 'exampleRu', 'meaningRu', 'alternativesPl', 'alternativesRu'];
-const idPattern = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/;
 export const columns = `cards.id, cards.pl, cards.ru, cards.example_pl AS examplePl, cards.example_ru AS exampleRu, cards.meaning_ru AS meaningRu,
 	cards.alternatives_pl AS alternativesPl, cards.alternatives_ru AS alternativesRu, cards.version, cards.archived,
 	cards.created_by AS createdBy, cards.created_at AS createdAt, cards.updated_at AS updatedAt`;
@@ -44,7 +43,7 @@ async function listCards(url: URL, env: Env): Promise<CardPage> {
 	const cursor = url.searchParams.get('cursor');
 	if (cursor !== null) {
 		const parts = cursor.split(':');
-		if (parts.length !== 2 || !/^\d{1,16}$/.test(parts[0]) || !Number.isSafeInteger(Number(parts[0])) || !idPattern.test(parts[1])) {
+		if (parts.length !== 2 || !/^\d{1,16}$/.test(parts[0]) || !Number.isSafeInteger(Number(parts[0])) || !uuidPattern.test(parts[1])) {
 			throw new HttpError(400, 'invalid_input', 'Неверный указатель страницы. Повторите поиск.');
 		}
 		time = Number(parts[0]);
@@ -65,7 +64,7 @@ export async function handleCards(request: Request, env: Env, user: User): Promi
 		methods(request, ['GET', 'POST']);
 		if (request.method === 'GET') return Response.json(await listCards(url, env));
 		const { id, ...value } = object(await readJson(request, 32_768), ['id', ...contentKeys]);
-		if (typeof id !== 'string' || !idPattern.test(id)) throw new HttpError(400, 'invalid_input', 'Неверный идентификатор карточки.');
+		if (typeof id !== 'string' || !uuidPattern.test(id)) throw new HttpError(400, 'invalid_input', 'Неверный идентификатор карточки.');
 		const content = parseCard(value);
 		const now = Date.now();
 		const row = await env.DB.prepare(`INSERT INTO cards
@@ -81,7 +80,7 @@ export async function handleCards(request: Request, env: Env, user: User): Promi
 		return Response.json(await readCard(env, id));
 	}
 	const match = /^\/api\/cards\/([^/]+)$/.exec(url.pathname);
-	if (!match || !idPattern.test(match[1])) return null;
+	if (!match || !uuidPattern.test(match[1])) return null;
 	methods(request, ['PATCH']);
 	const id = match[1];
 	const data = object(await readJson(request, 32_768), ['version', 'archived', ...contentKeys]);

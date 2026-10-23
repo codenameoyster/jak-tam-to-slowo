@@ -18,14 +18,14 @@ export function dictatedValue(field: HTMLInputElement, transcript: string): stri
 	return value ? `${value} ${transcript}` : transcript;
 }
 
-export function Dictation({ language, onText, disabled = false, onExpired }: {
-	language: DictationLanguage; onText(text: string): void; disabled?: boolean; onExpired?(): void;
+export function Dictation({ language, onText, disabled = false }: {
+	language: DictationLanguage; onText(text: string): void; disabled?: boolean;
 }) {
 	const active = useRef<Recording | null>(null);
-	const callbacks = useRef({ onText, onExpired });
+	const onTextRef = useRef(onText);
 	const [state, setState] = useState<'idle' | 'requesting' | 'recording' | 'transcribing'>('idle');
 	const [error, setError] = useState('');
-	useLayoutEffect(() => { callbacks.current = { onText, onExpired }; }, [onText, onExpired]);
+	useLayoutEffect(() => { onTextRef.current = onText; }, [onText]);
 
 	function stop(recording: Recording) {
 		clearTimeout(recording.timer);
@@ -76,12 +76,11 @@ export function Dictation({ language, onText, disabled = false, onExpired }: {
 			if (body.size > DICTATION_MAX_BYTES) { fail('Запись слишком большая. Сделайте более короткую запись.'); return; }
 			const result = await api<{ text: string }>('/dictation', { method: 'POST', body, headers: encoded.headers, signal: recording.controller.signal });
 			if (active.current !== recording) return;
-			callbacks.current.onText(result.text);
+			onTextRef.current(result.text);
 			cancel();
 		} catch (error) {
 			if (active.current !== recording) return;
 			fail(error instanceof ApiError ? error.message : 'Не удалось распознать речь. Повторите запись или введите текст.');
-			if (error instanceof ApiError && error.code === 'unauthorized') callbacks.current.onExpired?.();
 		}
 	}
 

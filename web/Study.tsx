@@ -3,8 +3,8 @@ import type { Direction, User } from '../shared/types';
 import { useStudy } from './useStudy';
 import { Dictation, dictatedValue } from './Dictation';
 
-export function Study({ user, onDirection, onBusy, onExpired }: {
-	user: User; onDirection(direction: Direction): void; onBusy(busy: boolean): void; onExpired(): void;
+export function Study({ user, onDirection, onBusy }: {
+	user: User; onDirection(direction: Direction): void; onBusy(busy: boolean): void;
 }) {
 	const study = useStudy(user);
 	const input = useRef<HTMLInputElement>(null);
@@ -16,7 +16,6 @@ export function Study({ user, onDirection, onBusy, onExpired }: {
 
 	useEffect(() => { onDirection(study.savedDirection); }, [study.savedDirection, onDirection]);
 	useEffect(() => { onBusy(study.busy); }, [study.busy, onBusy]);
-	useEffect(() => { if (study.expired) onExpired(); }, [study.expired, onExpired]);
 	useEffect(() => {
 		if (navigator.maxTouchPoints > 0 || matchMedia('(pointer: coarse)').matches) return;
 		if (study.state === 'answering') input.current?.focus();
@@ -38,7 +37,7 @@ export function Study({ user, onDirection, onBusy, onExpired }: {
 		{study.state !== 'feedback' && (current || study.locked) && <form onSubmit={event => { event.preventDefault(); void study.check(); }}>
 			<label htmlFor="study-answer">{polish ? 'Ответ по-польски' : 'Ответ по-русски'}</label>
 			<input ref={input} id="study-answer" lang={target} maxLength={500} autoComplete="off" value={study.answer} disabled={study.locked} onChange={event => study.setAnswer(event.target.value)} />
-			<Dictation key={`${current?.id}:${current?.version}`} language={target} disabled={study.locked || study.state !== 'answering'} onExpired={onExpired} onText={text => { if (input.current) study.setAnswer(dictatedValue(input.current, text)); }} />
+			<Dictation key={`${current?.id}:${current?.version}`} language={target} disabled={study.locked || study.state !== 'answering'} onText={text => { if (input.current) study.setAnswer(dictatedValue(input.current, text)); }} />
 			<div className="study-actions">
 				<button className="primary" type="submit" disabled={study.locked || study.state !== 'answering'}>Проверить</button>
 				<button type="button" disabled={study.locked || study.state !== 'answering'} onClick={() => void study.reveal()}>Показать ответ</button>

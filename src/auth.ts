@@ -1,6 +1,6 @@
 import type { Env } from './index';
 import type { User } from '../shared/types';
-import { HttpError, localHttp, methods, object, readJson, text } from './http';
+import { HttpError, localHttp, methods, object, readJson, text, uuidPattern } from './http';
 
 interface Account { id: string; username: string; displayName: string; passwordHash: string }
 
@@ -11,7 +11,7 @@ function accounts(env: Env): Account[] {
 		const parsed = value.map(item => {
 			const record = object(item, ['id', 'username', 'displayName', 'passwordHash']);
 			const account = { id: text(record.id, 36), username: text(record.username, 40), displayName: text(record.displayName, 80), passwordHash: text(record.passwordHash, 64) };
-			if (!/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(account.id) || !/^[\p{L}0-9._-]{3,40}$/u.test(account.username) || !/^[a-f0-9]{64}$/.test(account.passwordHash)) throw new Error();
+			if (!uuidPattern.test(account.id) || !/^[\p{L}0-9._-]{3,40}$/u.test(account.username) || !/^[a-f0-9]{64}$/.test(account.passwordHash)) throw new Error();
 			return account;
 		});
 		if (new Set(parsed.map(account => account.id)).size !== parsed.length || new Set(parsed.map(account => account.username)).size !== parsed.length) throw new Error();

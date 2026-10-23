@@ -216,11 +216,20 @@ test('recovers meaning choices and the selected meaning until logout independent
 	expect(keys.some(key => key.includes(USER_B.id))).toBe(false);
 });
 
-test('retains an Add draft after session expiry only for the original account', async ({ page, baseURL }) => {
+for (const scenario of [
+	{ name: 'card generation', search: false },
+	{ name: 'similar-word search', search: true },
+]) test(`retains an Add draft after session expiry in ${scenario.name} only for the original account`, async ({ page, baseURL }) => {
+	const expire = async () => expect((await page.request.delete('/api/session', { headers: { Origin: baseURL! } })).status()).toBe(204);
 	await page.getByRole('button', { name: 'Добавить', exact: true }).click();
+	if (scenario.search) await expire();
+	const searched = page.waitForResponse(response => response.url().includes('/api/cards?q='));
 	await page.getByLabel('Слово или выражение').fill('личный черновик');
-	expect((await page.request.delete('/api/session', { headers: { Origin: baseURL! } })).status()).toBe(204);
-	await page.getByRole('button', { name: 'Подготовить карточку', exact: true }).click();
+	expect((await searched).status()).toBe(scenario.search ? 401 : 200);
+	if (!scenario.search) {
+		await expire();
+		await page.getByRole('button', { name: 'Подготовить карточку', exact: true }).click();
+	}
 	await expect(page.getByRole('button', { name: 'Войти', exact: true })).toBeVisible();
 	await loginForm(page, USER_B);
 	await page.getByRole('button', { name: 'Добавить', exact: true }).click();

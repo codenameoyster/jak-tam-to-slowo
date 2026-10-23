@@ -1,5 +1,7 @@
 import type { Env } from './index';
 
+export const uuidPattern = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/;
+
 export class HttpError extends Error {
 	constructor(public status: number, public code: string, message: string) { super(message); }
 }
@@ -33,8 +35,7 @@ export function text(value: unknown, max: number): string {
 	return value;
 }
 
-export async function readJson(request: Request, maxBytes = 4096): Promise<unknown> {
-	if (request.headers.get('Content-Type')?.split(';')[0].trim() !== 'application/json') throw new HttpError(400, 'invalid_input', 'Отправьте запрос в формате JSON.');
+export async function readBody(request: Request, maxBytes: number, tooLarge: string): Promise<Blob> {
 	const reader = request.body?.getReader();
 	const chunks: Uint8Array[] = [];
 	let size = 0;
@@ -43,13 +44,16 @@ export async function readJson(request: Request, maxBytes = 4096): Promise<unkno
 			const { done, value } = await reader.read();
 			if (done) break;
 			size += value.byteLength;
-			if (size > maxBytes) { await reader.cancel(); throw new HttpError(413, 'too_large', 'Запрос слишком большой.'); }
+			if (size > maxBytes) { await reader.cancel(); throw new HttpError(413, 'too_large', tooLarge); }
 			chunks.push(value);
 		}
 	}
-	const bytes = new Uint8Array(size);
-	let offset = 0;
-	for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+	return new Blob(chunks);
+}
+
+export async function readJson(request: Request, maxBytes = 4096): Promise<unknown> {
+	if (request.headers.get('Content-Type')?.split(';')[0].trim() !== 'application/json') throw new HttpError(400, 'invalid_input', 'Отправьте запрос в формате JSON.');
+	const bytes = await (await readBody(request, maxBytes, 'Запрос слишком большой.')).arrayBuffer();
 	try { return JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes)); }
 	catch { throw new HttpError(400, 'invalid_input', 'Неверный JSON в запросе.'); }
 }

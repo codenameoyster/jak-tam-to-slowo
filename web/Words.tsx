@@ -5,7 +5,7 @@ import { CardFields } from './CardFields';
 
 interface Edit { card: Pick<Card, 'id' | 'version'>; value: CardContent }
 
-export function Words({ userId, onBusy, onExpired, initialCard = null }: { userId: string; onBusy(busy: boolean): void; onExpired(): void; initialCard?: Card | null }) {
+export function Words({ userId, onBusy, initialCard = null }: { userId: string; onBusy(busy: boolean): void; initialCard?: Card | null }) {
 	const key = `word-edit:${userId}`;
 	const [page, setPage] = useState<CardPage>({ cards: [], nextCursor: null });
 	const [query, setQuery] = useState('');
@@ -27,8 +27,7 @@ export function Words({ userId, onBusy, onExpired, initialCard = null }: { userI
 	}
 	function changeEdit(value: Edit | null) { setEdit(value); persist(value); }
 	function failed(error: unknown, fallback: string) {
-		if (error instanceof ApiError && error.code === 'unauthorized') onExpired();
-		else setError(error instanceof ApiError ? error.message : fallback);
+		setError(error instanceof ApiError ? error.message : fallback);
 	}
 
 	async function load(query: string, cursor?: string) {

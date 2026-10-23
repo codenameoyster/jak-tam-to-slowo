@@ -1,10 +1,10 @@
 import type { Direction, StudyBatch, User } from '../shared/types';
 import type { Env } from './index';
 import { type CardRow, columns, fromRow } from './cards';
-import { HttpError, methods } from './http';
+import { HttpError, methods, uuidPattern } from './http';
 
 export async function getStudyBatch(env: Env, userId: string, direction: Direction, exclude: string[], limit: number, now: number): Promise<StudyBatch> {
-	if (exclude.length > 10 || exclude.some(id => !/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(id))) {
+	if (exclude.length > 10 || exclude.some(id => !uuidPattern.test(id))) {
 		throw new HttpError(400, 'invalid_input', 'Укажите не больше десяти идентификаторов карточек.');
 	}
 	const excluded = JSON.stringify(exclude);

@@ -40,9 +40,9 @@ export function App() {
 		} finally { setLoading(false); }
 	}
 	useEffect(() => {
-		window.addEventListener('account-mismatch', expired);
+		window.addEventListener('session-ended', expired);
 		void load();
-		return () => window.removeEventListener('account-mismatch', expired);
+		return () => window.removeEventListener('session-ended', expired);
 	}, [expired]);
 	useEffect(() => { window.scrollTo(0, 0); }, [screen]);
 	useEffect(() => {
@@ -83,15 +83,10 @@ export function App() {
 		setError('');
 		try {
 			await api<void>('/session', { method: 'DELETE' });
-			if (user) {
-				sessionStorage.removeItem(`card-draft:${user.id}`);
-				sessionStorage.removeItem(`study-draft:${user.id}`);
-				sessionStorage.removeItem(`word-edit:${user.id}`);
-			}
+			if (user) for (const key of Object.keys(sessionStorage).filter(key => key.endsWith(`:${user.id}`))) sessionStorage.removeItem(key);
 			expired();
 		} catch (error) {
-			if (error instanceof ApiError && (error.code === 'unauthorized' || error.code === 'account_mismatch')) expired();
-			else setError('Не удалось выйти. Проверьте подключение и повторите.');
+			if (!(error instanceof ApiError && error.code === 'account_mismatch')) setError('Не удалось выйти. Проверьте подключение и повторите.');
 		}
 		finally { setBusy(false); }
 	}
@@ -104,7 +99,7 @@ export function App() {
 				<button aria-pressed={screen === 'words'} disabled={busy} onClick={() => { setSelectedCard(null); setScreen('words'); }}><Icon name="words" />Слова</button>
 				<button aria-pressed={screen === 'add'} disabled={busy} onClick={() => setScreen('add')}><Icon name="add" />Добавить</button>
 			</nav>
-			{screen === 'add' ? <AddWord key={user.id} userId={user.id} busy={busy} onBusy={setBusy} onExpired={expired} onOpen={card => { setSelectedCard(card); setScreen('words'); }} /> : screen === 'words' ? <Words key={user.id} userId={user.id} initialCard={selectedCard} onBusy={setBusy} onExpired={expired} /> : <Study key={user.id} user={user} onDirection={directionSaved} onBusy={setBusy} onExpired={expired} />}
+			{screen === 'add' ? <AddWord key={user.id} userId={user.id} busy={busy} onBusy={setBusy} onOpen={card => { setSelectedCard(card); setScreen('words'); }} /> : screen === 'words' ? <Words key={user.id} userId={user.id} initialCard={selectedCard} onBusy={setBusy} /> : <Study key={user.id} user={user} onDirection={directionSaved} onBusy={setBusy} />}
 		</> : !error && <Login onLogin={signedIn} />}
 		{error && <div className="notice"><p className="error" role="alert">{error}</p>{!user && <button onClick={load}>Повторить</button>}</div>}
 	</main>;

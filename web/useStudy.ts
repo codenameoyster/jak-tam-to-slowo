@@ -19,7 +19,6 @@ interface Session extends Recovery {
 	error: string;
 	savedDirection: Direction;
 	savingDirection: boolean;
-	expired: boolean;
 }
 
 function initial(user: User): Session {
@@ -29,7 +28,7 @@ function initial(user: User): Session {
 		direction: user.direction, cardId: null, answer: '', pending: null, reviewedCard: null, retainedAnswer: '', ...recovery,
 		queue: [], state: recovery?.pending ? 'error' : 'loading', feedback: null, nextDueAt: null,
 		error: recovery?.pending ? 'Сохранение ответа не подтверждено. Повторите запрос.' : '',
-		savedDirection: user.direction, savingDirection: false, expired: false,
+		savedDirection: user.direction, savingDirection: false,
 	};
 }
 
@@ -60,7 +59,7 @@ export function useStudy(user: User) {
 	}
 
 	function failed(error: unknown, fallback: string) {
-		return { error: error instanceof ApiError ? error.message : fallback, expired: error instanceof ApiError && error.code === 'unauthorized' };
+		return error instanceof ApiError ? error.message : fallback;
 	}
 
 	async function load() {
@@ -97,7 +96,7 @@ export function useStudy(user: User) {
 		} catch (error) {
 			if (version !== generation.current) return;
 			retryAction.current = () => void load();
-			update({ ...failed(error, 'Нет связи с сервером. Карточки остались в очереди. Повторите загрузку.'),
+			update({ error: failed(error, 'Нет связи с сервером. Карточки остались в очереди. Повторите загрузку.'),
 				state: live.current.queue.length ? live.current.state : 'error' });
 		} finally { if (refill.current === flight) refill.current = null; }
 	}
@@ -153,7 +152,7 @@ export function useStudy(user: User) {
 		} catch (error) {
 			if (version !== generation.current) return;
 			retryAction.current = () => void setDirection(direction);
-			update({ ...failed(error, 'Не удалось сохранить направление. Ответ остался в форме.'), savingDirection: false });
+			update({ error: failed(error, 'Не удалось сохранить направление. Ответ остался в форме.'), savingDirection: false });
 		}
 	}
 
@@ -198,7 +197,7 @@ export function useStudy(user: User) {
 				update({ pending: null, reviewedCard: null, cardId: rejected.cardId, state: current.queue.length ? 'answering' : 'loading', error: error.message });
 				persist();
 				if (!current.queue.length) void load();
-			} else update({ ...failed(error, 'Нет связи с сервером. Сохранение ответа не подтверждено. Повторите запрос.'), state: 'error' });
+			} else update({ error: failed(error, 'Нет связи с сервером. Сохранение ответа не подтверждено. Повторите запрос.'), state: 'error' });
 		}
 	}
 
@@ -216,7 +215,7 @@ export function useStudy(user: User) {
 		remaining: session.queue.length - (session.feedback && session.queue[0]?.card.id === session.feedback.cardId ? 1 : 0),
 		state: session.state, answer: session.answer, feedback: session.feedback, nextDueAt: session.nextDueAt, error: session.error,
 		direction: session.direction, savedDirection: session.savedDirection, retainedAnswer: session.retainedAnswer,
-		busy: session.state === 'checking' || session.savingDirection, locked: !!session.pending || session.savingDirection, expired: session.expired,
+		busy: session.state === 'checking' || session.savingDirection, locked: !!session.pending || session.savingDirection,
 		setAnswer, setDirection, check: () => submit('answer'), reveal: () => submit('reveal'), next,
 		retry: () => live.current.pending ? void submit('answer') : (retryAction.current ?? load)(),
 	};

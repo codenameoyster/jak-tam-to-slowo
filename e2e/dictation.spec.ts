@@ -576,7 +576,9 @@ for (const scenario of [
 	await media(page);
 	await page.goto('/');
 	if (scenario.name === 'Add') await page.getByRole('button', { name: 'Добавить', exact: true }).click();
+	const searched = scenario.name === 'Add' && page.waitForResponse(response => response.url().includes('/api/cards?q='));
 	await page.getByLabel(scenario.label).fill('typed');
+	await searched;
 	await start(page);
 	expect((await page.request.delete('/api/session', { headers })).status()).toBe(204);
 	await page.getByRole('button', { name: 'Остановить запись', exact: true }).click();

@@ -1,5 +1,5 @@
 import { DICTATION_MAX_BYTES, DICTATION_TYPES } from '../shared/dictation';
-import { HttpError, methods } from './http';
+import { HttpError, methods, readBody } from './http';
 import type { Env } from './index';
 
 const unavailable = (message = 'Не удалось распознать речь. Попробуйте снова или введите текст.') => new HttpError(503, 'dictation_unavailable', message);
@@ -9,20 +9,9 @@ export async function handleDictation(request: Request, env: Env): Promise<Respo
 	methods(request, ['POST']);
 	const contentType = request.headers.get('Content-Type') ?? '';
 	if (contentType.split(';')[0].trim() !== 'multipart/form-data') throw new HttpError(400, 'invalid_input', 'Отправьте запись в формате multipart/form-data.');
-	const reader = request.body?.getReader();
-	const chunks: Uint8Array[] = [];
-	let size = 0;
-	if (reader) {
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			size += value.byteLength;
-			if (size > DICTATION_MAX_BYTES) { await reader.cancel(); throw new HttpError(413, 'too_large', 'Запись слишком большая. Сделайте более короткую запись.'); }
-			chunks.push(value);
-		}
-	}
+	const upload = await readBody(request, DICTATION_MAX_BYTES, 'Запись слишком большая. Сделайте более короткую запись.');
 	let form: FormData;
-	try { form = await new Response(new Blob(chunks), { headers: { 'Content-Type': contentType } }).formData(); }
+	try { form = await new Response(upload, { headers: { 'Content-Type': contentType } }).formData(); }
 	catch { throw new HttpError(400, 'invalid_input', 'Не удалось прочитать запись. Повторите запись.'); }
 	const language = form.get('language'), clip = form.get('clip');
 	if ([...form.keys()].length !== 2 || (language !== 'auto' && language !== 'pl' && language !== 'ru')) throw new HttpError(400, 'invalid_input', 'Укажите язык: auto, pl или ru.');

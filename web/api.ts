@@ -13,7 +13,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 	const response = await fetch(`/api${path}`, { ...init, headers, credentials: 'same-origin', cache: 'no-store' });
 	if (!response.ok) {
 		const data = await response.json() as { error?: string; code?: string };
-		if (data.code === 'account_mismatch' && expectedAccount === accountId) window.dispatchEvent(new Event('account-mismatch'));
+		if (expectedAccount && expectedAccount === accountId && (data.code === 'account_mismatch' || data.code === 'unauthorized')) window.dispatchEvent(new Event('session-ended'));
 		throw new ApiError(response.status, data.error ?? 'Не удалось выполнить запрос. Попробуйте снова.', data.code, response.headers.get('X-Review-Recovery') === 'editable');
 	}
 	return response.status === 204 ? undefined as T : response.json() as Promise<T>;
