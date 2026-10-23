@@ -2,115 +2,77 @@ import { env } from 'cloudflare:workers';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { login, request } from './client';
 import { ONION_DRAFT, USER_A, USER_B, WORD_DRAFT } from './fixtures';
-import { CALLBACK, createOpenAI, responseStream } from './openai';
+import { createProvider, message } from './provider';
 
-let provider: Awaited<ReturnType<typeof createOpenAI>>, cookie: string;
-async function connect(id: string, account: string) {
-	const cookie = await login(id);
-	const start = await request('/api/ai/connection/start', { method: 'POST', cookie });
-	const url = new URL((await start.json<{ url: string }>()).url);
-	const address = `${CALLBACK}?${new URLSearchParams({ code: `${account}:${url.searchParams.get('nonce')}`, state: url.searchParams.get('state')!, client_id: `oaiapp_${account}` })}`;
-	expect((await request('/api/ai/connection/finish', { method: 'POST', cookie, body: { address } })).status).toBe(200);
-	return cookie;
-}
+const string = { type: 'string' }, strings = { type: 'array', items: string };
+const schema = { type: 'object', properties: { result: { anyOf: [
+	{ type: 'object', properties: { kind: { type: 'string', enum: ['choices'] }, choices: strings }, required: ['kind', 'choices'], additionalProperties: false },
+	{ type: 'object', properties: { kind: { type: 'string', enum: ['draft'] }, card: {
+		type: 'object', properties: { pl: string, ru: string, examplePl: string, exampleRu: string, meaningRu: string, alternativesPl: strings, alternativesRu: strings },
+		required: ['pl', 'ru', 'examplePl', 'exampleRu', 'meaningRu', 'alternativesPl', 'alternativesRu'], additionalProperties: false,
+	} }, required: ['kind', 'card'], additionalProperties: false },
+] } }, required: ['result'], additionalProperties: false };
+let provider: ReturnType<typeof createProvider>, cookie: string;
 beforeEach(async () => {
-	provider = await createOpenAI();
+	provider = createProvider();
 	vi.spyOn(globalThis, 'fetch').mockImplementation(provider.fetch);
-	cookie = await connect(USER_A.id, 'a');
-	provider.responses = () => responseStream({ kind: 'draft', card: WORD_DRAFT });
+	cookie = await login(USER_A.id);
+	provider.messages = () => message({ result: { kind: 'draft', card: WORD_DRAFT } });
 });
-const generate = (body: unknown = { text: 'słowo', language: 'pl' }) => request('/api/cards/draft', { method: 'POST', cookie, body });
-const calls = () => provider.calls.filter(call => call.url.endsWith('/responses'));
+const generate = (body: unknown = { text: 'słowo' }) => request('/api/cards/draft', { method: 'POST', cookie, body });
 
-it('prepares the exact Polish example with the owner credentials for another learner and writes no card', async () => {
-	await request('/api/ai/connection', { method: 'PATCH', cookie, body: { model: 'a-second' } });
+it('prepares the exact Polish example for either learner with the server key and writes no card', async () => {
 	cookie = await login(USER_B.id);
 	const response = await generate();
 	expect(response.status).toBe(200);
-	expect(await response.json()).toMatchObject({ kind: 'draft', card: {
-		pl: 'Słowo', ru: 'Слово', examplePl: 'Nie znam tego słowa.', exampleRu: 'Я не знаю этого слова.',
-	} });
+	expect(await response.json()).toEqual({ kind: 'draft', card: WORD_DRAFT });
 	expect(await env.DB.prepare('SELECT count(*) AS n FROM cards').first('n')).toBe(0);
-	expect(calls()).toHaveLength(1);
-	expect(calls()[0].headers.get('Authorization')).toBe('Bearer access-a');
-	expect(await calls()[0].json()).toMatchObject({ model: 'a-second', store: false, stream: true, input: [{ role: 'user', content: '{"text":"słowo","language":"pl"}' }] });
+	expect(provider.calls).toHaveLength(1);
+	expect(provider.calls[0].headers.get('Authorization')).toBe('Bearer test-anthropic-key');
+	const sent = await provider.calls[0].json<{ model: string; output_config: unknown; messages: unknown }>();
+	expect(sent.model).toBe('claude-sonnet-5-5');
+	expect(sent.output_config).toEqual({ effort: 'high', format: { type: 'json_schema', schema } });
+	expect(sent.messages).toEqual([{ role: 'user', content: '{"text":"słowo"}' }]);
 });
 
 it('returns Russian meaning choices before preparing the selected onion meaning', async () => {
-	provider.responses = () => responseStream({ kind: 'choices', choices: ['Овощ', 'Оружие для стрельбы стрелами'] });
-	const choices = await generate({ text: 'лук', language: 'ru' });
+	provider.messages = () => message({ result: { kind: 'choices', choices: ['Овощ', 'Оружие для стрельбы стрелами'] } });
+	const choices = await generate({ text: 'лук' });
 	expect(choices.status).toBe(200);
 	expect(await choices.json()).toEqual({ kind: 'choices', choices: ['Овощ', 'Оружие для стрельбы стрелами'] });
-	provider.responses = () => responseStream({ kind: 'draft', card: ONION_DRAFT });
-	const draft = await generate({ text: 'лук', language: 'ru', meaningRu: 'Овощ' });
+	provider.messages = () => message({ result: { kind: 'draft', card: ONION_DRAFT } });
+	const draft = await generate({ text: 'лук', meaningRu: 'Овощ' });
 	expect(draft.status).toBe(200);
-	expect(await draft.json()).toMatchObject({ kind: 'draft', card: { pl: 'Cebula', ru: 'Лук', examplePl: 'Kroję cebulę.', exampleRu: 'Я режу лук.' } });
-	expect(await calls()[1].json()).toMatchObject({ input: [{ role: 'user', content: '{"text":"лук","language":"ru","meaningRu":"Овощ"}' }] });
+	expect(await draft.json()).toEqual({ kind: 'draft', card: ONION_DRAFT });
+	expect(await provider.calls[1].json()).toMatchObject({ messages: [{ role: 'user', content: '{"text":"лук","meaningRu":"Овощ"}' }] });
 	expect(await env.DB.prepare('SELECT count(*) AS n FROM cards').first('n')).toBe(0);
 });
 
 it.each([
-	{ name: 'Russian wish', input: { text: 'спокойной ночи', language: 'ru' }, card: { pl: 'Dobranoc', ru: 'Спокойной ночи', examplePl: 'Dobranoc, mamo!', exampleRu: 'Спокойной ночи, мама!', meaningRu: 'Пожелание перед сном', alternativesPl: [], alternativesRu: [] } },
-	{ name: 'selected bow meaning', input: { text: 'лук', language: 'ru', meaningRu: 'Оружие для стрельбы стрелами' }, card: { pl: 'Łuk', ru: 'Лук', examplePl: 'Strzelam z łuku.', exampleRu: 'Я стреляю из лука.', meaningRu: 'Оружие для стрельбы стрелами', alternativesPl: [], alternativesRu: [] } },
-	{ name: 'multiword term casing', input: { text: 'zielona herbata', language: 'pl' }, card: { pl: 'Zielona herbata', ru: 'Зелёный чай', examplePl: 'Piję zieloną herbatę.', exampleRu: 'Я пью зелёный чай.', meaningRu: 'Напиток', alternativesPl: [], alternativesRu: [] } },
-	{ name: 'automatic Polish input', input: { text: 'słowo', language: 'auto' }, card: WORD_DRAFT },
-	{ name: 'automatic Russian input', input: { text: 'слово', language: 'auto' }, card: WORD_DRAFT },
-	{ name: 'automatic selected meaning', input: { text: 'лук', language: 'auto', meaningRu: 'Овощ' }, card: ONION_DRAFT },
-])('preserves the independent $name reference in a preview', async ({ input, card }) => {
-	provider.responses = () => responseStream({ kind: 'draft', card });
-	const response = await generate(input);
-	expect(response.status).toBe(200);
-	expect(await response.json()).toEqual({ kind: 'draft', card });
-	expect(calls()).toHaveLength(1);
-	expect(await calls()[0].json()).toMatchObject({ input: [{ role: 'user', content: JSON.stringify(input) }] });
-	expect(await env.DB.prepare('SELECT count(*) AS n FROM cards').first('n')).toBe(0);
-});
-
-it.each([
-	{ name: 'empty text', body: { text: ' ', language: 'pl' } },
-	{ name: 'oversized text', body: { text: 'a'.repeat(201), language: 'pl' } },
-	{ name: 'missing text', body: { language: 'pl' } },
-	{ name: 'unsupported language', body: { text: 'word', language: 'en' } },
-	{ name: 'missing language', body: { text: 'słowo' } },
-	{ name: 'empty selected meaning', body: { text: 'лук', language: 'ru', meaningRu: ' ' } },
-	{ name: 'oversized selected meaning', body: { text: 'лук', language: 'ru', meaningRu: 'я'.repeat(201) } },
-	{ name: 'client-selected account', body: { text: 'słowo', language: 'pl', userId: USER_B.id } },
-	{ name: 'empty automatic input', body: { text: ' ', language: 'auto' } },
-	{ name: 'empty automatic selected meaning', body: { text: 'лук', language: 'auto', meaningRu: ' ' } },
-	{ name: 'client-selected account with automatic input', body: { text: 'słowo', language: 'auto', userId: USER_B.id } },
+	{ name: 'empty text', body: { text: ' ' } },
+	{ name: 'oversized text', body: { text: 'a'.repeat(201) } },
+	{ name: 'missing text', body: {} },
+	{ name: 'a language field', body: { text: 'słowo', language: 'pl' } },
+	{ name: 'empty selected meaning', body: { text: 'лук', meaningRu: ' ' } },
+	{ name: 'oversized selected meaning', body: { text: 'лук', meaningRu: 'я'.repeat(201) } },
+	{ name: 'client-selected account', body: { text: 'słowo', userId: USER_B.id } },
 ])('rejects $name before inference', async ({ body }) => {
 	const response = await generate(body);
 	expect(response.status).toBe(400);
 	expect(await response.json()).toMatchObject({ code: 'invalid_input', error: expect.any(String) });
-	expect(calls()).toHaveLength(0);
+	expect(provider.calls).toHaveLength(0);
 });
 
-it('accepts the 200-character boundary and keeps input out of fixed instructions', async () => {
-	const body = { text: 'a'.repeat(200), language: 'ru', meaningRu: 'я'.repeat(200) };
+it('accepts the 200-character boundary and sends the input as the user message', async () => {
+	const body = { text: 'a'.repeat(200), meaningRu: 'я'.repeat(200) };
 	expect((await generate(body)).status).toBe(200);
-	const sent = await calls()[0].json<{ instructions: string; input: unknown }>();
-	expect(sent.input).toEqual([{ role: 'user', content: JSON.stringify(body) }]);
-	expect(sent.instructions).not.toContain(body.text);
-	expect(sent.instructions).not.toContain(body.meaningRu);
-	expect(sent.instructions.length).toBeGreaterThan(0);
+	expect(await provider.calls[0].json()).toMatchObject({ messages: [{ role: 'user', content: JSON.stringify(body) }] });
 });
 
 it.each([
 	{ name: 'unknown result kind', result: { kind: 'other', card: WORD_DRAFT } },
 	{ name: 'mixed result fields', result: { kind: 'draft', card: WORD_DRAFT, choices: ['Овощ', 'Оружие'] } },
-	{ name: 'missing Polish term', result: { kind: 'draft', card: { ...WORD_DRAFT, pl: undefined } } },
-	{ name: 'missing Russian term', result: { kind: 'draft', card: { ...WORD_DRAFT, ru: undefined } } },
-	{ name: 'missing Polish sentence', result: { kind: 'draft', card: { ...WORD_DRAFT, examplePl: undefined } } },
-	{ name: 'missing Russian sentence', result: { kind: 'draft', card: { ...WORD_DRAFT, exampleRu: undefined } } },
-	{ name: 'missing meaning', result: { kind: 'draft', card: { ...WORD_DRAFT, meaningRu: undefined } } },
-	{ name: 'missing Polish alternatives', result: { kind: 'draft', card: { ...WORD_DRAFT, alternativesPl: undefined } } },
-	{ name: 'missing Russian alternatives', result: { kind: 'draft', card: { ...WORD_DRAFT, alternativesRu: undefined } } },
 	{ name: 'blank term', result: { kind: 'draft', card: { ...WORD_DRAFT, pl: ' ' } } },
-	{ name: 'non-string sentence', result: { kind: 'draft', card: { ...WORD_DRAFT, exampleRu: 1 } } },
-	{ name: 'oversized sentence', result: { kind: 'draft', card: { ...WORD_DRAFT, examplePl: 'a'.repeat(501) } } },
-	{ name: 'oversized term', result: { kind: 'draft', card: { ...WORD_DRAFT, ru: 'я'.repeat(201) } } },
-	{ name: 'invalid alternatives', result: { kind: 'draft', card: { ...WORD_DRAFT, alternativesRu: [''] } } },
-	{ name: 'extra card field', result: { kind: 'draft', card: { ...WORD_DRAFT, id: 'invented' } } },
 	{ name: 'empty choices', result: { kind: 'choices', choices: [] } },
 	{ name: 'one choice', result: { kind: 'choices', choices: ['Овощ'] } },
 	{ name: 'blank choice', result: { kind: 'choices', choices: ['Овощ', ' '] } },
@@ -118,35 +80,31 @@ it.each([
 	{ name: 'oversized choice', result: { kind: 'choices', choices: ['Овощ', 'я'.repeat(201)] } },
 	{ name: 'non-string choice', result: { kind: 'choices', choices: ['Овощ', 1] } },
 ])('returns a service error for $name and creates no card', async ({ result }) => {
-	provider.responses = () => responseStream(result);
+	provider.messages = () => message({ result });
 	const response = await generate();
 	expect(response.status).toBe(503);
-	expect(await response.json()).toMatchObject({ code: 'ai_invalid_response', error: expect.any(String) });
+	expect(await response.json()).toEqual({ code: 'ai_invalid_response', error: 'ИИ вернул неверную карточку. Попробуйте снова.' });
 	expect(await env.DB.prepare('SELECT count(*) AS n FROM cards').first('n')).toBe(0);
 });
 
 it('requires a final draft after the learner selects a meaning', async () => {
-	provider.responses = () => responseStream({ kind: 'choices', choices: ['Овощ', 'Оружие'] });
-	const response = await generate({ text: 'лук', language: 'ru', meaningRu: 'Овощ' });
+	provider.messages = () => message({ result: { kind: 'choices', choices: ['Овощ', 'Оружие'] } });
+	const response = await generate({ text: 'лук', meaningRu: 'Овощ' });
 	expect(response.status).toBe(503);
 	expect(await response.json()).toMatchObject({ code: 'ai_invalid_response' });
 });
 
-it.each([
-	{ name: 'missing completed event', response: () => new Response('event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"{}"}\n\n', { headers: { 'Content-Type': 'text/event-stream' } }), status: 503, code: 'ai_interrupted' },
-	{ name: 'provider rejection', response: () => Response.json({ error: { code: 'subscription_sharing_invalid_user' } }, { status: 401 }), status: 401, code: 'subscription_sharing_invalid_user' },
-])('preserves the $name error contract', async ({ response, status, code }) => {
-	await env.DB.prepare('UPDATE ai_connections SET refresh_after=NULL WHERE user_id=?').bind(USER_A.id).run();
-	provider.responses = response;
+it('returns 503 for a missing key before inference', async () => {
+	Reflect.deleteProperty(env, 'ANTHROPIC_API_KEY');
 	const result = await generate();
-	expect(result.status).toBe(status);
-	expect(await result.json()).toMatchObject({ code, error: expect.any(String) });
-	expect(await env.DB.prepare('SELECT count(*) AS n FROM cards').first('n')).toBe(0);
+	expect(result.status).toBe(503);
+	expect(await result.json()).toEqual({ code: 'ai_unavailable', error: 'ИИ не настроен. Попросите владельца проверить ключ API.' });
+	expect(provider.calls).toHaveLength(0);
 });
 
 it('requires an authenticated same-origin POST', async () => {
-	expect((await request('/api/cards/draft', { method: 'POST', body: { text: 'słowo', language: 'pl' } })).status).toBe(401);
-	expect((await request('/api/cards/draft', { method: 'POST', cookie, origin: 'https://elsewhere.test', body: { text: 'słowo', language: 'pl' } })).status).toBe(403);
+	expect((await request('/api/cards/draft', { method: 'POST', body: { text: 'słowo' } })).status).toBe(401);
+	expect((await request('/api/cards/draft', { method: 'POST', cookie, origin: 'https://elsewhere.test', body: { text: 'słowo' } })).status).toBe(403);
 	expect((await request('/api/cards/draft', { cookie })).status).toBe(405);
-	expect(calls()).toHaveLength(0);
+	expect(provider.calls).toHaveLength(0);
 });

@@ -3,32 +3,23 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { ReviewInput, ReviewResult } from '../shared/types';
 import { login, request } from './client';
 import { CARD_A, USER_A, USER_B } from './fixtures';
-import { CALLBACK, createOpenAI, responseStream } from './openai';
+import { apiError, createProvider, message } from './provider';
 
 const now = Date.parse('2026-10-21T10:00:00.000Z');
 const input: ReviewInput = { attemptId: '10000000-0000-4000-8000-000000000001', cardId: CARD_A.id, cardVersion: 1, progressVersion: 0, direction: 'ru-pl', action: 'answer', answer: 'wyraz' };
-const correct = { grade: 'correct', correction: 'Słowo', explanationRu: 'Верный перевод для этого значения.' };
-let provider: Awaited<ReturnType<typeof createOpenAI>>, cookie: string;
-async function connect(id: string, account: string) {
-	const cookie = await login(id);
-	const start = await request('/api/ai/connection/start', { method: 'POST', cookie });
-	const url = new URL((await start.json<{ url: string }>()).url);
-	const address = `${CALLBACK}?${new URLSearchParams({ code: `${account}:${url.searchParams.get('nonce')}`, state: url.searchParams.get('state')!, client_id: `oaiapp_${account}` })}`;
-	expect((await request('/api/ai/connection/finish', { method: 'POST', cookie, body: { address } })).status).toBe(200);
-	return cookie;
-}
+const correct = { grade: 'correct', explanationRu: 'Верный перевод для этого значения.' };
+let provider: ReturnType<typeof createProvider>, cookie: string;
 beforeEach(async () => {
 	vi.useFakeTimers({ toFake: ['Date'] });
 	vi.setSystemTime(now);
-	provider = await createOpenAI();
+	provider = createProvider();
 	vi.spyOn(globalThis, 'fetch').mockImplementation(provider.fetch);
-	cookie = await connect(USER_A.id, 'a');
-	provider.responses = () => responseStream(correct);
+	cookie = await login(USER_A.id);
+	provider.messages = () => message(correct);
 	expect((await request('/api/cards', { method: 'POST', cookie, body: { ...CARD_A, alternativesPl: [] } })).status).toBe(201);
 });
 afterEach(() => vi.useRealTimers());
 const review = (body: unknown = input) => request('/api/reviews', { method: 'POST', cookie, body });
-const calls = () => provider.calls.filter(call => call.url.endsWith('/responses'));
 async function tables() {
 	return {
 		state: (await env.DB.prepare('SELECT * FROM review_state ORDER BY user_id, card_id, direction').all()).results,
@@ -46,7 +37,7 @@ it('replays a saved attempt after its response is lost with one interval update'
 	expect(retry.status).toBe(200);
 	expect(await retry.json()).toEqual(savedResult);
 	expect(await tables()).toMatchObject({ reviews: saved, state: [{ user_id: USER_A.id, version: 1, stage: 1, due_at: now + 86_400_000 }] });
-	expect(calls()).toHaveLength(1);
+	expect(provider.calls).toHaveLength(1);
 });
 
 it.each([
@@ -63,46 +54,43 @@ it.each([
 	expect(response.status).toBe(409);
 	expect(await response.json()).toMatchObject({ code: 'review_conflict' });
 	expect(await tables()).toEqual(before);
-	expect(calls()).toHaveLength(1);
+	expect(provider.calls).toHaveLength(1);
 });
 
 it.each([
 	{ name: 'edit', change: { ...CARD_A, id: undefined, version: 1, pl: 'Wyraz' } },
 	{ name: 'archive', change: { version: 1, archived: true } },
-])('replays the original result after a later review, card $name, and disconnect', async ({ change }) => {
+])('replays the original result after a later review, card $name, and a missing key', async ({ change }) => {
 	const first = await review();
 	expect(first.status).toBe(200);
 	const original = await first.json<ReviewResult>();
 	expect((await review({ ...input, attemptId: crypto.randomUUID(), progressVersion: 1, action: 'reveal', answer: undefined })).status).toBe(200);
 	expect((await request(`/api/cards/${CARD_A.id}`, { method: 'PATCH', cookie, body: change })).status).toBe(200);
-	expect((await request('/api/ai/connection', { method: 'DELETE', cookie })).status).toBe(200);
+	Reflect.deleteProperty(env, 'ANTHROPIC_API_KEY');
 	const before = await tables();
 	const retry = await review();
 	expect(retry.status).toBe(200);
 	expect(await retry.json()).toEqual(original);
 	expect(await tables()).toEqual(before);
 	expect(before.state).toMatchObject([{ version: 2, stage: 0, due_at: now + 60_000 }]);
-	expect(calls()).toHaveLength(1);
+	expect(provider.calls).toHaveLength(1);
 });
 
 it.each([
-	{ name: 'malformed stream', response: () => new Response('data: invalid\n\n', { headers: { 'Content-Type': 'text/event-stream' } }), status: 503, code: 'ai_invalid_response' },
-	{ name: 'interrupted stream', response: () => new Response('data: {"type":"response.output_text.delta","delta":"{}"}\n\n', { headers: { 'Content-Type': 'text/event-stream' } }), status: 503, code: 'ai_interrupted' },
-	{ name: 'usage limit', response: () => Response.json({ error: { code: 'subscription_sharing_usage_limit_exceeded' } }, { status: 429 }), status: 429, code: 'subscription_sharing_usage_limit_exceeded' },
-	{ name: 'provider authentication failure', response: () => Response.json({ error: { code: 'subscription_sharing_invalid_user' } }, { status: 401 }), status: 401, code: 'subscription_sharing_invalid_user' },
-])('keeps an exact success and a failed semantic check separate for $name in one session', async ({ response, status, code }) => {
+	{ name: 'non-JSON reply', response: () => message(null, 'end_turn', [{ type: 'text', text: 'not JSON' }]), code: 'ai_invalid_response' },
+	{ name: 'provider overload', response: () => apiError(529, 'overloaded_error'), code: 'ai_unavailable' },
+])('keeps an exact success and a failed semantic check separate for $name in one session', async ({ response, code }) => {
 	expect((await review({ ...input, attemptId: crypto.randomUUID(), answer: ' Słowo ' })).status).toBe(200);
-	expect(calls()).toHaveLength(0);
+	expect(provider.calls).toHaveLength(0);
 	const before = await tables();
-	await env.DB.prepare('UPDATE ai_connections SET refresh_after=NULL WHERE user_id=?').bind(USER_A.id).run();
-	provider.responses = response;
+	provider.messages = response;
 	const semantic = { ...input, progressVersion: 1 };
 	const failed = await review(semantic);
-	expect(failed.status).toBe(status);
+	expect(failed.status).toBe(503);
 	expect(failed.headers.get('X-Review-Recovery')).toBe('editable');
 	expect(await failed.json()).toMatchObject({ code, error: expect.any(String) });
 	expect(await tables()).toEqual(before);
-	provider.responses = () => responseStream(correct);
+	provider.messages = () => message(correct);
 	const retry = await review(semantic);
 	expect(retry.status).toBe(200);
 	expect(await retry.json()).toMatchObject({ grade: 'correct', source: 'ai', progress: { version: 2, stage: 2, dueAt: now + 259_200_000 } });
@@ -112,28 +100,15 @@ it.each([
 it.each([
 	{ name: 'unknown grade', result: { ...correct, grade: 'good' } },
 	{ name: 'missing grade', result: { ...correct, grade: undefined } },
-	{ name: 'missing correction', result: { ...correct, correction: undefined } },
-	{ name: 'blank correction', result: { ...correct, correction: ' ' } },
-	{ name: 'oversized correction', result: { ...correct, correction: 'a'.repeat(201) } },
-	{ name: 'missing explanation', result: { ...correct, explanationRu: undefined } },
-	{ name: 'non-string explanation', result: { ...correct, explanationRu: 1 } },
-	{ name: 'blank explanation', result: { ...correct, explanationRu: ' ' } },
 	{ name: 'oversized explanation', result: { ...correct, explanationRu: 'я'.repeat(501) } },
 	{ name: 'unexpected result field', result: { ...correct, stage: 6 } },
 ])('rejects an AI result with $name before storage', async ({ result }) => {
-	provider.responses = () => responseStream(result);
+	provider.messages = () => message(result);
 	const response = await review();
 	expect(response.status).toBe(503);
 	expect(response.headers.get('X-Review-Recovery')).toBe('editable');
-	expect(await response.json()).toMatchObject({ code: 'ai_invalid_response' });
+	expect(await response.json()).toEqual({ code: 'ai_invalid_response', error: 'ИИ вернул неверную оценку. Попробуйте снова.' });
 	expect(await tables()).toEqual({ state: [], reviews: [] });
-});
-
-it('returns the stored target term even when a valid model correction uses a synonym', async () => {
-	provider.responses = () => responseStream({ ...correct, correction: 'Wyraz' });
-	const response = await review();
-	expect(response.status).toBe(200);
-	expect(await response.json()).toMatchObject({ grade: 'correct', correction: 'Słowo' });
 });
 
 it.each([
@@ -141,11 +116,11 @@ it.each([
 	{ name: 'archive', change: { version: 1, archived: true } },
 ])('rejects a card $name while AI grading is pending', async ({ change }) => {
 	const ready = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
-	provider.responses = async () => { ready.resolve(); await release.promise; return responseStream(correct); };
+	provider.messages = async () => { ready.resolve(); await release.promise; return message(correct); };
 	const pending = review();
 	await Promise.race([ready.promise, pending]);
 	try {
-		expect(calls()).toHaveLength(1);
+		expect(provider.calls).toHaveLength(1);
 		expect(await tables()).toEqual({ state: [], reviews: [] });
 		expect((await request(`/api/cards/${CARD_A.id}`, { method: 'PATCH', cookie, body: change })).status).toBe(200);
 	} finally { release.resolve(); }
@@ -160,8 +135,8 @@ it.each([
 	{ name: 'empty answer', body: { ...input, answer: '' }, grade: 'again', correction: 'Słowo', source: 'exact', stage: 0, delay: 60_000 },
 	{ name: 'reveal', body: { ...input, action: 'reveal', answer: undefined }, grade: 'again', correction: 'Słowo', source: 'reveal', stage: 0, delay: 60_000 },
 	{ name: 'Russian reveal', body: { ...input, action: 'reveal', answer: undefined, direction: 'pl-ru' }, grade: 'again', correction: 'Слово', source: 'reveal', stage: 0, delay: 60_000 },
-])('saves a disconnected learner’s $name without provider access', async ({ body, grade, correction, source, stage, delay }) => {
-	expect((await request('/api/ai/connection', { method: 'DELETE', cookie })).status).toBe(200);
+])('saves the $name without the AI key and provider access', async ({ body, grade, correction, source, stage, delay }) => {
+	Reflect.deleteProperty(env, 'ANTHROPIC_API_KEY');
 	const count = provider.calls.length;
 	const response = await review(body);
 	expect(response.status).toBe(200);
@@ -190,7 +165,7 @@ it.each([
 	const response = await review({ ...input, ...change });
 	expect(response.status).toBe(400);
 	expect(await response.json()).toMatchObject({ code: 'invalid_input' });
-	expect(calls()).toHaveLength(0);
+	expect(provider.calls).toHaveLength(0);
 	expect(await tables()).toEqual({ state: [], reviews: [] });
 });
 
@@ -201,16 +176,15 @@ it.each([
 	await env.DB.prepare('UPDATE cards SET version=2, archived=? WHERE id=?').bind(archived, CARD_A.id).run();
 	const response = await review({ ...input, cardVersion: archived ? 2 : 1 });
 	expect(response.status).toBe(409);
-	expect(calls()).toHaveLength(0);
+	expect(provider.calls).toHaveLength(0);
 	expect(await tables()).toEqual({ state: [], reviews: [] });
 });
 
-it('uses the owner’s model and credentials for the other learner’s semantic review', async () => {
-	expect((await request('/api/ai/connection', { method: 'PATCH', cookie, body: { model: 'a-second' } })).status).toBe(200);
+it('uses the server key for the other learner’s semantic review', async () => {
 	cookie = await login(USER_B.id);
 	expect((await review()).status).toBe(200);
-	expect(calls()[0].headers.get('Authorization')).toBe('Bearer access-a');
-	expect(await calls()[0].json()).toMatchObject({ model: 'a-second', store: false, stream: true });
+	expect(provider.calls[0].headers.get('Authorization')).toBe('Bearer test-anthropic-key');
+	expect(await provider.calls[0].json()).toMatchObject({ model: 'claude-sonnet-5-5', output_config: { effort: 'high' } });
 	expect((await tables()).state).toMatchObject([{ user_id: USER_B.id }]);
 	expect((await tables()).reviews).toMatchObject([{ user_id: USER_B.id }]);
 });
@@ -219,15 +193,17 @@ it('requires an authenticated same-origin POST', async () => {
 	expect((await request('/api/reviews', { method: 'POST', body: input })).status).toBe(401);
 	expect((await request('/api/reviews', { method: 'POST', cookie, origin: 'https://elsewhere.test', body: input })).status).toBe(403);
 	expect((await request('/api/reviews', { cookie })).status).toBe(405);
-	expect(calls()).toHaveLength(0);
+	expect(provider.calls).toHaveLength(0);
 	expect(await tables()).toEqual({ state: [], reviews: [] });
 });
 
-it('marks disconnected grading as editable without writing a review', async () => {
-	expect((await request('/api/ai/connection', { method: 'DELETE', cookie })).status).toBe(200);
+it('marks grading without the AI key as editable without writing a review', async () => {
+	Reflect.deleteProperty(env, 'ANTHROPIC_API_KEY');
 	const response = await review();
-	expect(response.status).toBe(409);
+	expect(response.status).toBe(503);
 	expect(response.headers.get('X-Review-Recovery')).toBe('editable');
+	expect(await response.json()).toMatchObject({ code: 'ai_unavailable' });
+	expect(provider.calls).toHaveLength(0);
 	expect(await tables()).toEqual({ state: [], reviews: [] });
 });
 
@@ -245,26 +221,19 @@ it('keeps a storage outcome uncertain when the batch commits and then throws', a
 it.each([
 	{ name: 'semantic review', path: '/api/reviews', method: 'POST', body: input },
 	{ name: 'exact review', path: '/api/reviews', method: 'POST', body: { ...input, answer: 'Słowo' } },
-	{ name: 'draft generation', path: '/api/cards/draft', method: 'POST', body: { text: 'dom', language: 'pl' } },
+	{ name: 'draft generation', path: '/api/cards/draft', method: 'POST', body: { text: 'dom' } },
 	{ name: 'dictation', path: '/api/dictation', method: 'POST', body: {} },
 	{ name: 'preference change', path: '/api/me', method: 'PATCH', body: { direction: 'pl-ru' } },
-	{ name: 'connection read', path: '/api/ai/connection', method: 'GET', body: undefined },
-	{ name: 'connection start', path: '/api/ai/connection/start', method: 'POST', body: undefined },
-	{ name: 'connection finish', path: '/api/ai/connection/finish', method: 'POST', body: { address: CALLBACK } },
-	{ name: 'connection model change', path: '/api/ai/connection', method: 'PATCH', body: { model: 'b-second' } },
-	{ name: 'connection disconnect', path: '/api/ai/connection', method: 'DELETE', body: undefined },
 	{ name: 'logout', path: '/api/session', method: 'DELETE', body: undefined },
 	{ name: 'shared edit', path: `/api/cards/${CARD_A.id}`, method: 'PATCH', body: { version: 1, archived: true } },
 ])('rejects a stale displayed account before $name', async ({ path, method, body }) => {
 	const other = await login(USER_B.id);
-	const connections = await env.DB.prepare('SELECT * FROM ai_connections ORDER BY user_id').all();
 	const count = provider.calls.length;
 	const response = await request(path, { method, body, cookie: other, accountId: USER_A.id });
 	expect(response.status).toBe(409);
 	expect(await response.json()).toMatchObject({ code: 'account_mismatch' });
 	expect(response.headers.get('Set-Cookie')).toBeNull();
 	expect(provider.calls).toHaveLength(count);
-	expect((await env.DB.prepare('SELECT * FROM ai_connections ORDER BY user_id').all()).results).toEqual(connections.results);
 	expect(await tables()).toEqual({ state: [], reviews: [] });
 	expect(await (await request('/api/session', { cookie: other })).json()).toMatchObject({ id: USER_B.id, direction: 'ru-pl' });
 	expect(await env.DB.prepare('SELECT archived FROM cards WHERE id=?').bind(CARD_A.id).first('archived')).toBe(0);

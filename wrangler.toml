@@ -7,10 +7,6 @@ workers_dev = false
 preview_urls = false
 routes = [{ pattern = "learn.rustatian.me", custom_domain = true }]
 
-[vars]
-CHATGPT_HOST_ID = "urn:uuid:d60bf487-5c11-47b1-8a64-7583b6521a6f"
-CHATGPT_OWNER_ID = "3c5d81fe-1a09-4d3f-bc88-e4009f01aeca"
-
 [[d1_databases]]
 binding = "DB"
 database_name = "jak-tam-to-slowo"
@@ -39,7 +35,7 @@ port = 8787
 local_protocol = "http"
 
 [secrets]
-required = ["ACCOUNTS", "AI_TOKEN_KEY", "OPENAI_TRANSCRIPTION_API_KEY"]
+required = ["ACCOUNTS", "ANTHROPIC_API_KEY", "OPENAI_TRANSCRIPTION_API_KEY"]
 
 [observability]
 enabled = true

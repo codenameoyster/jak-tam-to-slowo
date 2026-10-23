@@ -108,9 +108,9 @@ it.each([
 });
 
 it.each([
-	{ name: 'owner to mąż', user: USER_A, other: USER_B, username: 'mąż', displayName: 'Mąż', canManage: true, manageStatus: 200 },
-	{ name: 'learner to żona', user: USER_B, other: USER_A, username: 'żona', displayName: 'Żona', canManage: false, manageStatus: 403 },
-])('retains identity, progress, and permissions after renaming the $name', async ({ user, other, username, displayName, canManage, manageStatus }) => {
+	{ name: 'first learner to mąż', user: USER_A, other: USER_B, username: 'mąż', displayName: 'Mąż' },
+	{ name: 'second learner to żona', user: USER_B, other: USER_A, username: 'żona', displayName: 'Żona' },
+])('retains identity and progress after renaming the $name', async ({ user, other, username, displayName }) => {
 	const now = Date.parse('2026-10-22T10:00:00.000Z');
 	vi.spyOn(Date, 'now').mockReturnValue(now);
 	const provider = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Unexpected provider request.'));
@@ -124,7 +124,6 @@ it.each([
 	expect(reviewed.status).toBe(200);
 	const result = await reviewed.json();
 	expect(result).toMatchObject({ grade: 'correct', source: 'exact', progress: { stage: 1, version: 1, dueAt: now + 86_400_000, lastReviewedAt: now } });
-	expect(await (await request('/api/ai/connection', { cookie })).json()).toMatchObject({ canManage });
 
 	env.ACCOUNTS = testAccountSecret.replace(user.username, username).replace(user.displayName, displayName);
 	const response = await request('/api/session', { method: 'POST', body: { username, password: user.password } });
@@ -145,8 +144,6 @@ it.each([
 	]);
 	expect((await env.DB.prepare('SELECT user_id, attempt_id FROM reviews').all()).results).toEqual([{ user_id: user.id, attempt_id: input.attemptId }]);
 	expect(await env.DB.prepare('SELECT count(*) AS n FROM users').first('n')).toBe(1);
-	expect(await (await request('/api/ai/connection', { cookie: renamedCookie })).json()).toMatchObject({ canManage });
-	expect((await request('/api/ai/connection', { method: 'DELETE', cookie: renamedCookie })).status).toBe(manageStatus);
 	const otherSession = await request('/api/session', { cookie: await login(other.id) });
 	expect(await otherSession.json()).toMatchObject({ id: other.id, direction: 'ru-pl' });
 	expect(provider).not.toHaveBeenCalled();

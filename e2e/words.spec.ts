@@ -159,14 +159,11 @@ test('keeps Words mounted through a delayed save and reload, then recovers later
 		await expect(page.getByRole('button', { name: 'Учить', exact: true })).toBeDisabled();
 		await expect(page.getByRole('button', { name: 'Слова', exact: true })).toBeDisabled();
 		await expect(page.getByRole('button', { name: 'Добавить', exact: true })).toBeDisabled();
-		await expect(page.getByRole('button', { name: 'Настройки', exact: true })).toBeDisabled();
 		await expect(page.getByRole('button', { name: 'Выйти', exact: true })).toBeDisabled();
 		releaseSave.resolve();
 		await reloaded.promise;
-		await page.getByRole('button', { name: 'Настройки', exact: true }).click({ force: true });
 		await page.getByRole('button', { name: 'Выйти', exact: true }).click({ force: true });
 		await expect(page.getByRole('heading', { name: 'Слова', exact: true })).toBeVisible();
-		await expect(page.getByRole('button', { name: 'Настройки', exact: true })).toBeDisabled();
 		await expect(page.getByRole('button', { name: 'Выйти', exact: true })).toBeDisabled();
 	} finally { releaseSave.resolve(); releaseReload.resolve(); }
 	await expect(page.getByLabel('Поиск слов')).toBeEnabled();

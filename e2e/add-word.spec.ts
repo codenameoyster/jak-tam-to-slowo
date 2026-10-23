@@ -8,11 +8,6 @@ test.beforeEach(async ({ page, baseURL }) => {
 	const headers = { Origin: baseURL!, 'CF-Connecting-IP': `add-${crypto.randomUUID()}` };
 	await page.setExtraHTTPHeaders(headers);
 	expect((await page.request.post('/api/session', { headers, data: { username: USER_A.username, password: USER_A.password } })).status()).toBe(200);
-	const start = await page.request.post('/api/ai/connection/start', { headers });
-	const url = new URL((await start.json()).url);
-	const callback = new URL(url.searchParams.get('redirect_uri')!);
-	callback.search = new URLSearchParams({ code: `a:${url.searchParams.get('nonce')}`, state: url.searchParams.get('state')!, client_id: 'oaiapp_a' }).toString();
-	expect((await page.request.post('/api/ai/connection/finish', { headers, data: { address: callback.href } })).status()).toBe(200);
 	await page.goto('/');
 });
 
@@ -22,7 +17,6 @@ test.afterEach(async ({ page, baseURL }) => {
 	for (const card of list.cards.filter(card => createdIds.includes(card.id))) {
 		expect((await page.request.patch(`/api/cards/${card.id}`, { headers, data: { version: card.version, archived: true } })).status()).toBe(200);
 	}
-	expect((await page.request.delete('/api/ai/connection', { headers })).status()).toBe(200);
 });
 
 async function loginForm(page: Page, user: typeof USER_A) {
@@ -39,7 +33,7 @@ for (const scenario of [
 	await page.getByLabel('Слово или выражение').fill(scenario.text);
 	const generated = page.waitForResponse(response => response.url().endsWith('/api/cards/draft'));
 	await page.getByRole('button', { name: 'Подготовить карточку', exact: true }).click();
-	expect((await generated).request().postDataJSON()).toEqual({ text: scenario.text, language: 'auto' });
+	expect((await generated).request().postDataJSON()).toEqual({ text: scenario.text });
 	expect((await generated).status()).toBe(200);
 	await expect(page.getByLabel('Язык ввода')).toHaveCount(0);
 	await expect(page.getByLabel('По-польски', { exact: true })).toHaveValue('Słowo');
@@ -61,7 +55,7 @@ for (const scenario of [
 	expect(await page.evaluate(key => JSON.parse(sessionStorage.getItem(key)!), `card-draft:${USER_A.id}`)).toMatchObject(retained);
 	const generated = page.waitForResponse(response => response.url().endsWith('/api/cards/draft'));
 	await page.getByRole('button', { name: 'Подготовить карточку', exact: true }).click();
-	expect((await generated).request().postDataJSON()).toEqual({ text: 'лук', language: 'auto', meaningRu: 'Овощ' });
+	expect((await generated).request().postDataJSON()).toEqual({ text: 'лук', meaningRu: 'Овощ' });
 	expect((await generated).status()).toBe(200);
 	await expect(page.getByLabel('Язык ввода')).toHaveCount(0);
 	await expect(page.getByLabel('По-польски', { exact: true })).toHaveValue('Cebula');
@@ -187,7 +181,7 @@ test('recovers meaning choices and the selected meaning until logout independent
 	await expect(page.getByRole('button', { name: 'Оружие для стрельбы стрелами', exact: true })).toBeVisible();
 	const selected = page.waitForRequest(request => request.url().endsWith('/api/cards/draft'));
 	await page.getByRole('button', { name: 'Овощ', exact: true }).click();
-	expect((await selected).postDataJSON()).toEqual({ text: 'лук', language: 'auto', meaningRu: 'Овощ' });
+	expect((await selected).postDataJSON()).toEqual({ text: 'лук', meaningRu: 'Овощ' });
 	await expect(page.getByLabel('По-польски', { exact: true })).toHaveValue('Cebula');
 	await expect(page.getByLabel('Пример по-польски')).toHaveValue('Kroję cebulę.');
 	await page.getByRole('button', { name: 'Учить', exact: true }).click();
@@ -242,8 +236,8 @@ test('retains input on provider authentication failure and retains edits on a re
 	await page.getByLabel('Слово или выражение').fill('ошибка подключения');
 	const rejected = page.waitForResponse(response => response.url().endsWith('/api/cards/draft'));
 	await page.getByRole('button', { name: 'Подготовить карточку', exact: true }).click();
-	expect((await rejected).status()).toBe(401);
-	await expect(page.getByRole('alert')).toContainText('ChatGPT не принял подключение');
+	expect((await rejected).status()).toBe(503);
+	await expect(page.getByRole('alert')).toContainText('ИИ не настроен. Попросите владельца проверить ключ API.');
 	await expect(page.getByLabel('Слово или выражение')).toHaveValue('ошибка подключения');
 	await expect(page.getByRole('button', { name: 'Выйти', exact: true })).toBeVisible();
 	await page.getByLabel('Слово или выражение').fill('słowo');
@@ -339,7 +333,6 @@ test('keeps the draft mounted until Save confirms and clears recovery data', asy
 	try {
 		await expect(page.getByRole('button', { name: 'Учить', exact: true })).toBeDisabled();
 		await expect(page.getByRole('button', { name: 'Слова', exact: true })).toBeDisabled();
-		await expect(page.getByRole('button', { name: 'Настройки', exact: true })).toBeDisabled();
 		await expect(page.getByRole('button', { name: 'Выйти', exact: true })).toBeDisabled();
 	} finally { release.resolve(); }
 	await expect(page.getByRole('status')).toContainText('Карточка сохранена.');

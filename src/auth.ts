@@ -32,7 +32,7 @@ function cookie(request: Request, env: Env, value: string, seconds: number): str
 	return `${cookieName(request, env)}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${seconds}${localHttp(request, env) ? '' : '; Secure'}`;
 }
 
-export async function requireSession(request: Request, env: Env): Promise<{ user: User; sessionHash: string }> {
+async function requireSession(request: Request, env: Env): Promise<{ user: User; sessionHash: string }> {
 	const value = token(request, env);
 	if (value) {
 		const sessionHash = await hash(value);

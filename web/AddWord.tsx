@@ -62,7 +62,7 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy, onExpired }: { 
 		setSaved(null);
 		change({ meaningRu });
 		try {
-			const result = await api<DraftResult>('/cards/draft', { method: 'POST', body: JSON.stringify({ text: draft.text, language: 'auto', meaningRu }) });
+			const result = await api<DraftResult>('/cards/draft', { method: 'POST', body: JSON.stringify({ text: draft.text, meaningRu }) });
 			change(result.kind === 'draft' ? { card: result.card, choices: [] } : { choices: result.choices, card: undefined });
 		} catch (error) {
 			if (error instanceof ApiError && error.code === 'unauthorized') onExpired();

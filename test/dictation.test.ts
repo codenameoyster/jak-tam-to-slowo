@@ -3,14 +3,14 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import worker from '../src/index';
 import { login } from './client';
 import { testBindings, USER_A, USER_B } from './fixtures';
-import { createOpenAI } from './openai';
+import { createProvider } from './provider';
 
 let cookie: string;
-let provider: Awaited<ReturnType<typeof createOpenAI>>;
+let provider: ReturnType<typeof createProvider>;
 beforeEach(async () => {
 	cookie = await login(USER_A.id);
 	env.OPENAI_TRANSCRIPTION_API_KEY = testBindings.OPENAI_TRANSCRIPTION_API_KEY;
-	provider = await createOpenAI();
+	provider = createProvider();
 	provider.transcriptions = () => Response.json({ text: 'Słowo.', languages: [{ code: 'pl' }] });
 	vi.spyOn(globalThis, 'fetch').mockImplementation(provider.fetch);
 });

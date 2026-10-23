@@ -44,14 +44,6 @@ async function reachRefill(page: Page, cards: Card[]) {
 	}
 }
 
-async function connect(page: Page) {
-	const start = await page.request.post('/api/ai/connection/start', { headers });
-	const url = new URL((await start.json()).url);
-	const callback = new URL(url.searchParams.get('redirect_uri')!);
-	callback.search = new URLSearchParams({ code: `a:${url.searchParams.get('nonce')}`, state: url.searchParams.get('state')!, client_id: 'oaiapp_a' }).toString();
-	expect((await page.request.post('/api/ai/connection/finish', { headers, data: { address: callback.href } })).status()).toBe(200);
-}
-
 function sql(command: string) {
 	const result = spawnSync('bun', ['x', 'wrangler', 'd1', 'execute', 'DB', '--local', '--persist-to', '.wrangler/playwright/state', '--command', command], { encoding: 'utf8' });
 	expect(result.status, result.stderr).toBe(0);
@@ -68,7 +60,6 @@ test.beforeEach(async ({ page, baseURL }) => {
 test.afterEach(async ({ page }) => {
 	expect((await page.request.post('/api/session', { headers, data: { username: USER_A.username, password: USER_A.password } })).status()).toBe(200);
 	await archive(page);
-	expect((await page.request.delete('/api/ai/connection', { headers })).status()).toBe(200);
 });
 
 test('refills once at three unanswered cards, keeps the active card in the cap, and removes overlapping IDs', async ({ page }, testInfo) => {
@@ -400,13 +391,12 @@ test('confirms direction changes with input and keeps the saved direction when S
 
 test('retains an editable answer on provider 401 without expiring the app session', async ({ page }) => {
 	await seed(page);
-	await connect(page);
 	await page.goto('/');
 	await page.getByLabel('Ответ по-польски').fill('ошибка подключения');
 	const failed = page.waitForResponse(response => response.url().endsWith('/api/reviews'));
 	await page.getByRole('button', { name: 'Проверить', exact: true }).click();
-	expect((await failed).status()).toBe(401);
-	await expect(page.getByRole('alert')).toContainText('ChatGPT не принял подключение');
+	expect((await failed).status()).toBe(503);
+	await expect(page.getByRole('alert')).toContainText('ИИ не настроен. Попросите владельца проверить ключ API.');
 	await expect(page.getByLabel('Ответ по-польски')).toHaveValue('ошибка подключения');
 	await expect(page.getByRole('button', { name: 'Выйти', exact: true })).toBeVisible();
 	expect(((await (await page.request.get('/api/study?direction=ru-pl')).json()) as StudyBatch).cards[0].progress).toBeNull();
@@ -416,22 +406,18 @@ test('retains an editable answer on provider 401 without expiring the app sessio
 	await expect(page.getByTestId('study-correction')).toHaveText('Dom');
 });
 
-for (const scenario of [
-	{ name: 'disconnected grading', connected: false, answer: 'domu', status: 409 },
-	{ name: 'usage limit', connected: true, answer: 'лимит', status: 429 },
-]) test(`restores editing and Reveal after ${scenario.name} and reload`, async ({ page }) => {
+test('restores editing and Reveal after a usage limit and reload', async ({ page }) => {
 	await seed(page);
-	if (scenario.connected) await connect(page);
 	await page.goto('/');
-	await page.getByLabel('Ответ по-польски').fill(scenario.answer);
+	await page.getByLabel('Ответ по-польски').fill('лимит');
 	const failed = page.waitForResponse(response => response.url().endsWith('/api/reviews'));
 	await page.getByRole('button', { name: 'Проверить', exact: true }).click();
-	expect((await failed).status()).toBe(scenario.status);
+	expect((await failed).status()).toBe(429);
 	await expect(page.getByLabel('Ответ по-польски')).toBeEnabled();
 	await expect(page.getByRole('button', { name: 'Показать ответ', exact: true })).toBeEnabled();
 	expect(((await (await page.request.get('/api/study')).json()) as StudyBatch).cards[0].progress).toBeNull();
 	await page.reload();
-	await expect(page.getByLabel('Ответ по-польски')).toHaveValue(scenario.answer);
+	await expect(page.getByLabel('Ответ по-польски')).toHaveValue('лимит');
 	await page.getByLabel('Ответ по-польски').fill('мой ответ');
 	await page.getByRole('button', { name: 'Показать ответ', exact: true }).click();
 	await expect(page.getByTestId('study-correction')).toHaveText('Dom');
@@ -444,22 +430,22 @@ for (const scenario of [
 	const [card] = await seed(page, 2);
 	await page.route('**/api/reviews', async route => { await route.fetch(); await route.abort(); });
 	await page.goto('/');
-	await page.getByLabel('Ответ по-польски').fill('domu');
+	await page.getByLabel('Ответ по-польски').fill('ошибка подключения');
 	await page.getByRole('button', { name: 'Проверить', exact: true }).click();
 	await expect(page.getByRole('alert')).toContainText('не подтверждено');
 	await page.unroute('**/api/reviews');
 	await page.reload();
 	if (scenario.archived) await page.route('**/api/reviews', async route => {
 		const response = await route.fetch();
-		expect(response.status()).toBe(409);
+		expect(response.status()).toBe(503);
 		expect((await page.request.patch(`/api/cards/${card.id}`, { headers, data: { version: 1, archived: true } })).status()).toBe(200);
 		await route.fulfill({ response });
 	});
 	await page.getByRole('button', { name: 'Повторить', exact: true }).click();
 	await expect(page.getByTestId('study-term')).toHaveText(scenario.term);
 	await expect(page.getByLabel('Ответ по-польски')).toBeEnabled();
-	await expect(page.getByLabel('Ответ по-польски')).toHaveValue(scenario.archived ? '' : 'domu');
-	if (scenario.archived) await expect(page.getByLabel('Сохранённый ответ')).toHaveValue('domu');
+	await expect(page.getByLabel('Ответ по-польски')).toHaveValue(scenario.archived ? '' : 'ошибка подключения');
+	if (scenario.archived) await expect(page.getByLabel('Сохранённый ответ')).toHaveValue('ошибка подключения');
 	await page.unroute('**/api/reviews');
 	await page.getByRole('button', { name: 'Показать ответ', exact: true }).click();
 	await expect(page.getByTestId('study-correction')).toHaveText(scenario.archived ? 'Dom 2' : 'Dom');
@@ -496,7 +482,6 @@ for (const scenario of [
 	{ name: 'reveal', answer: '', button: 'Показать ответ', feedback: 'Повторите', stage: 0 },
 ]) test(`announces ${scenario.name} feedback after a saved review`, async ({ page }) => {
 	await seed(page);
-	if (scenario.answer) await connect(page);
 	await page.goto('/');
 	await page.getByLabel('Ответ по-польски').fill(scenario.answer);
 	const saved = page.waitForResponse(response => response.url().endsWith('/api/reviews'));

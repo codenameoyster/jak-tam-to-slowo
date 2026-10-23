@@ -11,25 +11,13 @@ async function signIn(page: Page, user: typeof USER_A) {
 	await expect(page.getByText(user.displayName, { exact: true })).toBeVisible();
 }
 
-async function connectOwner(page: Page) {
-	await page.getByRole('button', { name: 'Настройки', exact: true }).click();
-	await page.getByRole('button', { name: /Продолжить с ChatGPT|Подключить заново/ }).click();
-	const authorization = new URL((await page.getByRole('link', { name: 'Открыть страницу входа ChatGPT' }).getAttribute('href'))!);
-	const callback = new URL(authorization.searchParams.get('redirect_uri')!);
-	callback.search = new URLSearchParams({ state: authorization.searchParams.get('state')!, code: `a:${authorization.searchParams.get('nonce')}`, client_id: 'oaiapp_a' }).toString();
-	await page.getByLabel('Адрес со страницы ошибки').fill(callback.href);
-	await page.getByRole('button', { name: 'Подключить', exact: true }).click();
-	await expect(page.getByText('a@example.test', { exact: true })).toBeVisible();
-}
-
-test('shares the owner connection for generation and grading while keeping learner progress and retries separate', async ({ page, browser, baseURL }) => {
+test('shares the server key for generation and grading while keeping learner progress and retries separate', async ({ page, browser, baseURL }) => {
 	const context = await browser.newContext({ baseURL });
 	const other = await context.newPage();
 	const headers = { Origin: baseURL! };
 	let card: Card | undefined;
 	try {
 		await signIn(page, USER_A);
-		await connectOwner(page);
 		await signIn(other, USER_B);
 		await other.getByRole('button', { name: 'Добавить', exact: true }).click();
 		await other.getByLabel('Слово или выражение').fill('słowo');
@@ -58,19 +46,11 @@ test('shares the owner connection for generation and grading while keeping learn
 		await other.getByLabel('Ответ по-польски').fill('ошибка подключения');
 		const failed = other.waitForResponse(response => response.url().endsWith('/api/reviews'));
 		await other.getByRole('button', { name: 'Проверить', exact: true }).click();
-		expect((await failed).status()).toBe(401);
-		await expect(other.getByRole('alert')).toContainText('ChatGPT не принял подключение');
+		expect((await failed).status()).toBe(503);
+		await expect(other.getByRole('alert')).toContainText('ИИ не настроен. Попросите владельца проверить ключ API.');
 		await expect(other.getByLabel('Ответ по-польски')).toHaveValue('ошибка подключения');
-		await expect(other.getByRole('button', { name: 'Выйти', exact: true })).toBeVisible();
-		expect((await page.request.delete('/api/ai/connection', { headers })).status()).toBe(200);
-		const disconnected = other.waitForResponse(response => response.url().endsWith('/api/reviews'));
-		await other.getByRole('button', { name: 'Повторить', exact: true }).click();
-		expect((await disconnected).status()).toBe(409);
-		expect(await (await disconnected).json()).toMatchObject({ code: 'ai_disconnected' });
 		await expect(other.getByLabel('Ответ по-польски')).toBeEnabled();
-		const draft = await other.request.post('/api/cards/draft', { headers, data: { text: 'słowo', language: 'pl' } });
-		expect(draft.status()).toBe(409);
-		expect(await draft.json()).toMatchObject({ code: 'ai_disconnected' });
+		await expect(other.getByRole('button', { name: 'Выйти', exact: true })).toBeVisible();
 		await page.getByRole('button', { name: 'Учить', exact: true }).click();
 		await page.getByRole('button', { name: 'RU -> PL', exact: true }).click();
 		await expect(page.getByTestId('study-term')).toHaveText('Слово');
@@ -127,7 +107,6 @@ test('shares the owner connection for generation and grading while keeping learn
 		const active = list.cards.find(item => item.id === card?.id);
 		if (active) expect((await page.request.patch(`/api/cards/${active.id}`, { headers, data: { version: active.version, archived: true } })).status()).toBe(200);
 		await page.request.patch('/api/me', { headers, data: { direction: 'ru-pl' } });
-		await page.request.delete('/api/ai/connection', { headers });
 		await other.request.patch('/api/me', { headers, data: { direction: 'ru-pl' } });
 		await context.close();
 	}

@@ -3,7 +3,6 @@ import type { Card, Direction, User } from '../shared/types';
 import { api, ApiError, setApiAccount } from './api';
 import { Login } from './Login';
 import { Words } from './Words';
-import { Settings } from './Settings';
 import { AddWord } from './AddWord';
 import { Study } from './Study';
 import { Icon } from './Icon';
@@ -13,7 +12,7 @@ export function App() {
 	const [loading, setLoading] = useState(true);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState('');
-	const [screen, setScreen] = useState<'study' | 'words' | 'settings' | 'add'>('study');
+	const [screen, setScreen] = useState<'study' | 'words' | 'add'>('study');
 	const [selectedCard, setSelectedCard] = useState<Card | null>(null);
 	const expired = useCallback(() => {
 		setApiAccount(null);
@@ -104,9 +103,8 @@ export function App() {
 				<button aria-pressed={screen === 'study'} disabled={busy} onClick={() => setScreen('study')}><Icon name="study" />Учить</button>
 				<button aria-pressed={screen === 'words'} disabled={busy} onClick={() => { setSelectedCard(null); setScreen('words'); }}><Icon name="words" />Слова</button>
 				<button aria-pressed={screen === 'add'} disabled={busy} onClick={() => setScreen('add')}><Icon name="add" />Добавить</button>
-				<button aria-pressed={screen === 'settings'} disabled={busy} onClick={() => setScreen('settings')}><Icon name="settings" />Настройки</button>
 			</nav>
-			{screen === 'settings' ? <Settings key={user.id} onExpired={expired} /> : screen === 'add' ? <AddWord key={user.id} userId={user.id} busy={busy} onBusy={setBusy} onExpired={expired} onOpen={card => { setSelectedCard(card); setScreen('words'); }} /> : screen === 'words' ? <Words key={user.id} userId={user.id} initialCard={selectedCard} onBusy={setBusy} onExpired={expired} /> : <Study key={user.id} user={user} onDirection={directionSaved} onBusy={setBusy} onExpired={expired} />}
+			{screen === 'add' ? <AddWord key={user.id} userId={user.id} busy={busy} onBusy={setBusy} onExpired={expired} onOpen={card => { setSelectedCard(card); setScreen('words'); }} /> : screen === 'words' ? <Words key={user.id} userId={user.id} initialCard={selectedCard} onBusy={setBusy} onExpired={expired} /> : <Study key={user.id} user={user} onDirection={directionSaved} onBusy={setBusy} onExpired={expired} />}
 		</> : !error && <Login onLogin={signedIn} />}
 		{error && <div className="notice"><p className="error" role="alert">{error}</p>{!user && <button onClick={load}>Повторить</button>}</div>}
 	</main>;

@@ -129,7 +129,7 @@ for (const scenario of [
 	const submitted = page.waitForRequest(request => request.url().endsWith(scenario.screen === 'add' ? '/api/cards/draft' : '/api/reviews'));
 	await page.getByRole('button', { name: scenario.screen === 'add' ? 'Подготовить карточку' : 'Проверить', exact: true }).click();
 	expect((await submitted).postDataJSON()).toMatchObject(scenario.screen === 'add'
-		? { text: scenario.expected, language: 'auto' }
+		? { text: scenario.expected }
 		: { action: 'answer', answer: scenario.expected, direction: 'ru-pl' });
 });
 
@@ -165,7 +165,7 @@ for (const scenario of [
 		await expect(page.getByLabel('Язык ввода')).toHaveCount(0);
 		const generated = page.waitForRequest(request => request.url().endsWith('/api/cards/draft'));
 		await page.getByRole('button', { name: 'Подготовить карточку', exact: true }).click();
-		expect((await generated).postDataJSON()).toMatchObject({ text: `${scenario.transcript} edited`, language: scenario.language });
+		expect((await generated).postDataJSON()).toEqual({ text: `${scenario.transcript} edited` });
 	} else {
 		await page.getByRole('button', { name: 'Добавить', exact: true }).click();
 		await expect(page.getByLabel('Язык ввода')).toHaveCount(0);
@@ -317,7 +317,7 @@ for (const scenario of [
 	try {
 		if (scenario.change === 'discard') await page.getByRole('button', { name: 'Удалить черновик', exact: true }).click();
 		if (scenario.change === 'generate') {
-			await page.route('**/api/cards/draft', route => route.fulfill({ status: 503, json: { error: 'Повторите запрос.', code: 'ai_interrupted' } }));
+			await page.route('**/api/cards/draft', route => route.fulfill({ status: 503, json: { error: 'Повторите запрос.', code: 'ai_unavailable' } }));
 			await page.getByRole('button', { name: 'Подготовить карточку', exact: true }).click();
 			await expect(page.getByRole('alert')).toContainText('Повторите запрос.');
 		}
@@ -425,11 +425,6 @@ test.describe('phone interface', () => {
 		const cancel = (await page.getByRole('button', { name: 'Отменить правки', exact: true }).boundingBox())!;
 		expect(cancel.y + cancel.height).toBeLessThan(navigation.y);
 		await shot('edit-actions');
-		await page.getByRole('button', { name: 'Настройки', exact: true }).tap();
-		await expect(page.getByText(/ChatGPT (не )?подключён\./)).toBeVisible();
-		await page.evaluate(() => window.scrollTo(0, 0));
-		await targets(page);
-		await shot('settings');
 		await page.getByRole('button', { name: 'Учить', exact: true }).tap();
 		await page.getByRole('button', { name: 'Показать ответ', exact: true }).tap();
 		await expect(page.getByTestId('study-correction')).toBeVisible();
@@ -443,7 +438,7 @@ test.describe('phone interface', () => {
 	});
 
 	for (const scenario of [
-		{ name: 'Add', label: 'Слово или выражение', submit: 'Подготовить карточку', endpoint: '/api/cards/draft', expected: { text: 'To źle słowo.', language: 'auto' } },
+		{ name: 'Add', label: 'Слово или выражение', submit: 'Подготовить карточку', endpoint: '/api/cards/draft', expected: { text: 'To źle słowo.' } },
 		{ name: 'Study', label: 'Ответ по-польски', submit: 'Проверить', endpoint: '/api/reviews', expected: { answer: 'To źle słowo.', direction: 'ru-pl', action: 'answer' } },
 	]) test(`preserves the current selection through a touch retry in ${scenario.name}`, async ({ page }) => {
 		await media(page);
