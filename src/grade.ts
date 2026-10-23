@@ -10,7 +10,12 @@ const schema = {
 };
 
 function normalized(value: string): string {
-	return value.normalize('NFC').toLowerCase().trim().replace(/\s+/g, ' ');
+	return value.normalize('NFC').toLowerCase().replace(/ё/g, 'е').trim().replace(/\s+/g, ' ');
+}
+
+// Only for Polish: NFD splits Russian й into и plus a combining mark.
+function withoutPolishMarks(value: string): string {
+	return value.normalize('NFD').replace(/\p{M}/gu, '').replace(/ł/g, 'l');
 }
 
 export async function gradeAnswer(env: Env, card: Card, direction: Direction, answer: string): Promise<{ result: GradeResult; source: 'exact' | 'ai' }> {
@@ -18,9 +23,12 @@ export async function gradeAnswer(env: Env, card: Card, direction: Direction, an
 	const alternatives = direction === 'ru-pl' ? card.alternativesPl : card.alternativesRu;
 	const value = normalized(answer);
 	if (!value) return { result: { grade: 'again', correction, explanationRu: 'Ответ не указан. Повторите слово.' }, source: 'exact' };
-	if ([correction, ...alternatives].some(term => normalized(term) === value)) {
+	const terms = [correction, ...alternatives];
+	if (terms.some(term => normalized(term) === value)) {
 		return { result: { grade: 'correct', correction, explanationRu: 'Верно.' }, source: 'exact' };
 	}
+	const near = direction === 'ru-pl' && terms.find(term => withoutPolishMarks(normalized(term)) === withoutPolishMarks(value));
+	if (near) return { result: { grade: 'almost', correction, explanationRu: `Почти верно. Проверьте польские буквы: ${near}.` }, source: 'exact' };
 	const { pl, ru, examplePl, exampleRu, meaningRu, alternativesPl, alternativesRu } = card;
 	const response = await requestAiJson(env, instructions, { card: { pl, ru, examplePl, exampleRu, meaningRu, alternativesPl, alternativesRu }, direction, answer }, schema);
 	try {

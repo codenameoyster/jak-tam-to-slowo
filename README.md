@@ -6,7 +6,7 @@ A private Polish and Russian card-learning app for two learners. Cards and one s
 
 Use **Добавить** to prepare a card with the AI. Type or dictate in Polish or Russian. The AI infers the source language from the text. Select one meaning when a word has several meanings. Edit the terms, examples, and accepted answers before you save. Use **Слова** to search, edit, or archive shared cards.
 
-Study starts with `RU -> PL`. The app saves your last direction. It keeps up to ten cards ready and refills the queue when three remain. **Проверить** and **Показать ответ** show the target term and both usage examples. Correct answers use intervals of 1, 3, 7, 14, 30, and 60 days. Almost correct answers return in 10 minutes. Other answers and Reveal return in 1 minute. Exact answers and Reveal work without the AI.
+Study starts with `RU -> PL`. The app saves your last direction. It keeps up to ten cards ready and refills the queue when three remain. **Проверить** and **Показать ответ** show the target term and both usage examples. Correct answers use intervals of 1, 3, 7, 14, 30, and 60 days. Almost correct answers return in 10 minutes. Other answers and Reveal return in 1 minute. Exact answers and Reveal work without the AI. An exact answer can use `е` for `ё`. A Polish answer that differs from a saved term only in Polish diacritics, for example `slowo` for `Słowo`, is almost correct without the AI.
 
 If a save or review response is lost, use **Повторить**. The app sends the same request and does not record it twice. Keep that tab until the retry completes. Drafts use account-specific session storage. Session expiry retains drafts in that tab. Explicit logout clears them. A shared-card conflict retains your answer for copying. A stale tab with another displayed account receives `409 account_mismatch` before any action.
 
@@ -56,7 +56,7 @@ For production, use `.wrangler/production/accounts.json` as the rotation input. 
 
 ## AI
 
-Both learners use one server-side `ANTHROPIC_API_KEY`. The server calls `claude-sonnet-5-5` with effort `high` to prepare cards and to grade answers that are not exact. Card texts, selected meanings, and those answers go to Anthropic. Exact answers and Reveal work without the AI. An AI error keeps the text editable and keeps the application session active.
+Both learners use one server-side `ANTHROPIC_API_KEY`. The server calls `claude-sonnet-5-5` with effort `high` to prepare cards and to grade answers that it cannot check without the AI. Card texts, selected meanings, and those answers go to Anthropic. Exact answers, Polish answers that differ only in diacritics, and Reveal work without the AI. An AI error keeps the text editable and keeps the application session active.
 
 Anthropic bills API usage by tokens. Use a dedicated key in its own workspace. Set a monthly spend limit for that workspace in the Anthropic Console. See [workspace limits](https://platform.claude.com/docs/en/api/rate-limits#setting-lower-limits-for-workspaces).
 
