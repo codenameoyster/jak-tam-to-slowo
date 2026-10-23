@@ -128,6 +128,60 @@ test('keeps an unsaved shared edit after another learner saves first', async ({ 
 	} finally { await other.dispose(); }
 });
 
+test('keeps Words mounted through a delayed save and reload, then recovers later edits', async ({ page, baseURL }) => {
+	const headers = { Origin: baseURL! };
+	expect((await page.request.post('/api/session', { headers, data: { username: USER_A.username, password: USER_A.password } })).status()).toBe(200);
+	expect((await page.request.post('/api/cards', { headers, data: { ...CARD_B, id: cardId } })).status()).toBe(201);
+	await page.goto('/');
+	await page.getByRole('button', { name: 'Слова', exact: true }).click();
+	await page.getByRole('button', { name: 'Dom / Дом', exact: true }).click();
+	await page.getByLabel('Пример по-польски').fill('To mój nowy dom.');
+	const saved = Promise.withResolvers<void>(), releaseSave = Promise.withResolvers<void>();
+	const reloaded = Promise.withResolvers<void>(), releaseReload = Promise.withResolvers<void>();
+	await page.route(`**/api/cards/${cardId}`, async route => {
+		const response = await route.fetch();
+		expect(response.status()).toBe(200);
+		saved.resolve();
+		await releaseSave.promise;
+		await route.fulfill({ response });
+	});
+	await page.route('**/api/cards?*', async route => {
+		const response = await route.fetch();
+		reloaded.resolve();
+		await releaseReload.promise;
+		await route.fulfill({ response });
+	});
+	try {
+		await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
+		await saved.promise;
+		await page.getByRole('button', { name: 'Учить', exact: true }).click({ force: true });
+		await expect(page.getByRole('heading', { name: 'Слова', exact: true })).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Учить', exact: true })).toBeDisabled();
+		await expect(page.getByRole('button', { name: 'Слова', exact: true })).toBeDisabled();
+		await expect(page.getByRole('button', { name: 'Добавить', exact: true })).toBeDisabled();
+		await expect(page.getByRole('button', { name: 'Настройки', exact: true })).toBeDisabled();
+		await expect(page.getByRole('button', { name: 'Выйти', exact: true })).toBeDisabled();
+		releaseSave.resolve();
+		await reloaded.promise;
+		await page.getByRole('button', { name: 'Настройки', exact: true }).click({ force: true });
+		await page.getByRole('button', { name: 'Выйти', exact: true }).click({ force: true });
+		await expect(page.getByRole('heading', { name: 'Слова', exact: true })).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Настройки', exact: true })).toBeDisabled();
+		await expect(page.getByRole('button', { name: 'Выйти', exact: true })).toBeDisabled();
+	} finally { releaseSave.resolve(); releaseReload.resolve(); }
+	await expect(page.getByLabel('Поиск слов')).toBeEnabled();
+	await page.unroute('**/api/cards?*');
+	await page.getByRole('button', { name: 'Dom / Дом', exact: true }).click();
+	await expect(page.getByLabel('Пример по-польски')).toHaveValue('To mój nowy dom.');
+	await page.getByLabel('Пример по-польски').fill('To kolejny opis domu.');
+	await page.getByRole('button', { name: 'Добавить', exact: true }).click();
+	await page.getByRole('button', { name: 'Слова', exact: true }).click();
+	await expect(page.getByLabel('Пример по-польски')).toHaveValue('To kolejny opis domu.');
+	await page.reload();
+	await page.getByRole('button', { name: 'Слова', exact: true }).click();
+	await expect(page.getByLabel('Пример по-польски')).toHaveValue('To kolejny opis domu.');
+});
+
 test('retries a term edit with replacement alternatives and archives the shared card', async ({ page, baseURL }) => {
 	const headers = { Origin: baseURL! };
 	expect((await page.request.post('/api/session', { headers, data: { username: USER_A.username, password: USER_A.password } })).status()).toBe(200);

@@ -5,7 +5,7 @@ import { CardFields } from './CardFields';
 
 interface Edit { card: Pick<Card, 'id' | 'version'>; value: CardContent }
 
-export function Words({ userId, onExpired, initialCard = null }: { userId: string; onExpired(): void; initialCard?: Card | null }) {
+export function Words({ userId, onBusy, onExpired, initialCard = null }: { userId: string; onBusy(busy: boolean): void; onExpired(): void; initialCard?: Card | null }) {
 	const key = `word-edit:${userId}`;
 	const [page, setPage] = useState<CardPage>({ cards: [], nextCursor: null });
 	const [query, setQuery] = useState('');
@@ -54,6 +54,7 @@ export function Words({ userId, onExpired, initialCard = null }: { userId: strin
 	async function save(archive = false) {
 		if (!edit || !persist(edit)) return;
 		setBusy(true);
+		onBusy(true);
 		setError('');
 		try {
 			const body = archive ? { version: edit.card.version, archived: true } : {
@@ -65,7 +66,7 @@ export function Words({ userId, onExpired, initialCard = null }: { userId: strin
 			changeEdit(null);
 			await load(search);
 		} catch (error) { failed(error, 'Нет связи с сервером. Правки остались в форме. Попробуйте сохранить ещё раз.'); }
-		finally { setBusy(false); }
+		finally { setBusy(false); onBusy(false); }
 	}
 
 	function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); void save(); }

@@ -8,6 +8,7 @@ it.each([
 	{ name: 'other Unicode letters', username: 'Иван', otherUsername: 'peer-test' },
 	{ name: 'ASCII letters, digits, and separators', username: 'A1.z_-', otherUsername: 'peer-test' },
 	{ name: 'the maximum length', username: 'ż'.repeat(40), otherUsername: 'peer-test' },
+	{ name: '20 supplementary letters at 40 UTF-16 units', username: '\u{10400}'.repeat(20), otherUsername: 'peer-test' },
 	{ name: 'case-sensitive names', username: 'mąż', otherUsername: 'Mąż' },
 ])('generates usable credentials for $name', ({ username, otherUsername }) => {
 	const result = spawnSync('bun', ['scripts/credentials.ts', username, 'Test first', otherUsername, 'Test second'], { encoding: 'utf8' });
@@ -31,6 +32,7 @@ it.each([
 	{ name: 'an empty name', username: '' },
 	{ name: 'a name below the minimum length', username: 'ąż' },
 	{ name: 'a name above the maximum length', username: 'ż'.repeat(41) },
+	{ name: '21 supplementary letters above 40 UTF-16 units', username: '\u{10400}'.repeat(21) },
 	{ name: 'a space', username: 'ma ż' },
 	{ name: 'unsupported punctuation', username: 'ma@z' },
 	{ name: 'a non-ASCII digit', username: 'mąż١' },

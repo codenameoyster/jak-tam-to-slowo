@@ -15,7 +15,7 @@ if (args[0] === '--rotate' && args.length === 2) {
 }
 if (!Array.isArray(accounts) || accounts.length !== 2 || accounts.some(account =>
 	!account || typeof account.id !== 'string' || !/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(account.id)
-	|| typeof account.username !== 'string' || !/^[\p{L}0-9._-]{3,40}$/u.test(account.username)
+	|| typeof account.username !== 'string' || account.username.length > 40 || !/^[\p{L}0-9._-]{3,40}$/u.test(account.username)
 	|| typeof account.displayName !== 'string' || !account.displayName.trim() || account.displayName.length > 80,
 ) || accounts[0].id === accounts[1].id || accounts[0].username === accounts[1].username) {
 	throw new Error('Supply two accounts with distinct IDs and usernames. Use 3-40 letters, digits, dots, dashes, or underscores for usernames.');

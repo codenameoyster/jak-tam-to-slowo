@@ -50,6 +50,7 @@ it.each([
 	{ name: 'other Unicode letters', username: 'Иван' },
 	{ name: 'ASCII letters, digits, and separators', username: 'A1.z_-' },
 	{ name: 'the maximum length', username: 'ż'.repeat(40) },
+	{ name: '20 supplementary letters at 40 UTF-16 units', username: '\u{10400}'.repeat(20) },
 ])('logs in with $name', async ({ username }) => {
 	env.ACCOUNTS = testAccountSecret.replace(USER_A.username, username);
 	const response = await request('/api/session', { method: 'POST', body: { username, password: USER_A.password } });
@@ -65,6 +66,7 @@ it.each([
 	{ name: 'an empty name', username: '' },
 	{ name: 'a name below the minimum length', username: 'ąż' },
 	{ name: 'a name above the maximum length', username: 'ż'.repeat(41) },
+	{ name: '21 supplementary letters above 40 UTF-16 units', username: '\u{10400}'.repeat(21) },
 	{ name: 'a space', username: 'ma ż' },
 	{ name: 'unsupported punctuation', username: 'ma@z' },
 	{ name: 'a non-ASCII digit', username: 'mąż١' },

@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import type { ConnectionView } from '../shared/types';
 import { api, ApiError } from './api';
 
-export function Settings() {
+export function Settings({ onExpired }: { onExpired(): void }) {
 	const [connection, setConnection] = useState<ConnectionView | null>(null);
 	const [url, setUrl] = useState('');
 	const [address, setAddress] = useState('');
@@ -13,7 +13,10 @@ export function Settings() {
 	async function run(action: () => Promise<void>) {
 		setBusy(true); setError(''); setNotice('');
 		try { await action(); }
-		catch (error) { setError(error instanceof ApiError ? error.message : 'Нет связи с сервером. Попробуйте снова.'); }
+		catch (error) {
+			if (error instanceof ApiError && error.code === 'unauthorized') onExpired();
+			else setError(error instanceof ApiError ? error.message : 'Нет связи с сервером. Попробуйте снова.');
+		}
 		finally { setBusy(false); }
 	}
 	function load() { return run(async () => setConnection(await api<ConnectionView>('/ai/connection'))); }
