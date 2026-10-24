@@ -52,7 +52,7 @@ set -C
 bun scripts/credentials.ts --rotate .local/accounts.json > .local/accounts-next.json 2> .local/credentials-next.txt
 ```
 
-For production, use `.wrangler/production/accounts.json` as the rotation input. Update `ACCOUNTS` in the protected secrets JSON with the new array. Deploy that file with the command below. Keep `ANTHROPIC_API_KEY` and `OPENAI_TRANSCRIPTION_API_KEY` unchanged. The rotation command preserves account IDs. Each credential change invalidates that account's existing sessions. Direction and progress stay with its stable ID. New IDs create new learners.
+For production, use `.wrangler/production/accounts.json` as the rotation input. Update `ACCOUNTS` in the protected secrets JSON with the new array. Upload that file with the secret commands in [Production setup](#production-setup). Keep `ANTHROPIC_API_KEY` and `OPENAI_TRANSCRIPTION_API_KEY` unchanged. The rotation command preserves account IDs. Each credential change invalidates that account's existing sessions. Direction and progress stay with its stable ID. New IDs create new learners.
 
 ## AI
 
@@ -98,17 +98,23 @@ After a binding change, run `bunx wrangler types src/worker-configuration.d.ts -
 
 The approved account is **TheRustatian**, `d89bca31204306ee78e165e9f8ebd3be`. `wrangler.toml` configures Worker `jak-tam-to-slowo`, D1 `jak-tam-to-slowo` (`3e8c178e-be58-462c-bf9c-0e76543c9429`), and Custom Domain `learn.rustatian.me`. The Worker is live at `learn.rustatian.me`. The owner confirmed the existing Workers Paid plan.
 
-The production usernames are `mąż` (ID `3c5d81fe-1a09-4d3f-bc88-e4009f01aeca`) and `żona` (ID `82c369b2-368d-4546-af9b-1b3941d8d8b1`). Their generated passwords are in `.wrangler/production/credentials.txt`. Stable account IDs and password hashes are in `.wrangler/production/accounts.json`. `.wrangler/production/secrets.json` must contain `ACCOUNTS`, `ANTHROPIC_API_KEY`, and `OPENAI_TRANSCRIPTION_API_KEY`. Preserve the account credentials. The directory uses mode `0700`; each file uses `0600`. Preserve these files and put a protected copy in the owner's password manager. Secret values must stay out of source, assets, command arguments, CI, and logs.
+The production usernames are `mąż` (ID `3c5d81fe-1a09-4d3f-bc88-e4009f01aeca`) and `żona` (ID `82c369b2-368d-4546-af9b-1b3941d8d8b1`). Their generated passwords are in `.wrangler/production/credentials.txt`. Stable account IDs and password hashes are in `.wrangler/production/accounts.json`. `.wrangler/production/secrets.json` must contain `ACCOUNTS`, `ANTHROPIC_API_KEY`, and `OPENAI_TRANSCRIPTION_API_KEY`. Preserve the account credentials. The directory uses mode `0700`; each file uses `0600`. Preserve these files and put a protected copy in the owner's password manager. Secret values must stay out of source,[Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/) deploys the Worker from GitHub. Do not deploy by hand. A merge to `main` runs `bun run deploy`, which applies pending D1 migrations to `jak-tam-to-slowo` and then deploys the Worker. Each other branch runs `bun run preview`, which applies pending migrations to the Preview database `jak-tam-to-slowo-preview` (`48f31176-bc5f-427a-85c6-ef06cceb0ebd`) and creates a [Preview](https://developers.cloudflare.com/workers/previews/) with its own URL. Use that URL to review a pull request.
 
-Deploy only reviewed code. Confirm the account. Read the installed Wrangler help before remote commands. Deploy code and secrets together. Apply a pending migration that adds tables or columns before the deploy. Apply a pending migration that removes them after the deploy, so the running Worker never reads a dropped table. Migration `0006` removes tables, so it follows the deploy:
+Previews use the Preview database and their own login limiter, so they do not change production cards or progress. Preview URLs are public, and the app asks for a login. Previews read `ACCOUNTS`, `ANTHROPIC_API_KEY`, and `OPENAI_TRANSCRIPTION_API_KEY` from the Preview base config. `wrangler.preview-migrations.toml` names the Preview database, because Wrangler applies migrations only to top-level D1 bindings.
+
+Migrations run before the new code. Write each migration so that the running code still works with it. To remove a table or a column, first merge the code that stops using it, then merge the migration.
+
+Secrets do not change with a deploy. To change them, confirm the account and upload the protected secrets file. A change to the Preview base config applies only to new Previews:
 
 ```sh
 bunx wrangler whoami --account d89bca31204306ee78e165e9f8ebd3be
-bunx wrangler deploy --secrets-file .wrangler/production/secrets.json
-bunx wrangler d1 migrations apply DB --remote
+bunx wrangler secret bulk .wrangler/production/secrets.json
+bunx wrangler preview base-config secret bulk .wrangler/production/secrets.json
 ```
 
-The [secrets-file option](https://developers.cloudflare.com/workers/configuration/secrets/#upload-secrets-alongside-code) uploads secrets with the code. `secret put` and `secret bulk` can activate a deployment. Use the reviewed deployment command. `workers_dev = false` and `preview_urls = false` keep alternate public URLs disabled. Cloudflare creates the DNS record and certificate for the [Custom Domain](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/). Do not replace a conflicting record or change another app.
+`workers_dev = false` and `preview_urls = false` keep other public URLs of the production Worker disabled. Cloudflare creates the DNS record and certificate for the [Custom Domain](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/). Do not replace a conflicting record or change another app.
+
+conflicting record or change another app.
 
 After a deploy, check HTTPS, both account logins, shared cards, independent progress, a card draft, and a non-exact answer. Check Polish and Russian dictation on real phones within the approved speech budget. Record sanitized outcomes. Phone recording and deployed usage remain open checks.
 

@@ -18,6 +18,18 @@ name = "LOGIN_LIMITER"
 namespace_id = "1002"
 simple = { limit = 10, period = 60 }
 
+# Previews of other branches use their own D1 database and login limiter. wrangler.preview-migrations.toml applies the migrations to that database.
+[[previews.d1_databases]]
+binding = "DB"
+database_name = "jak-tam-to-slowo-preview"
+database_id = "48f31176-bc5f-427a-85c6-ef06cceb0ebd"
+migrations_dir = "migrations"
+
+[[previews.ratelimits]]
+name = "LOGIN_LIMITER"
+namespace_id = "1003"
+simple = { limit = 10, period = 60 }
+
 [assets]
 directory = "dist"
 binding = "ASSETS"

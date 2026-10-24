@@ -1,0 +1,10 @@
+# Wrangler reads D1 migrations only from top-level bindings, so this file names the Preview database from the previews block in wrangler.toml.
+# https://developers.cloudflare.com/workers/previews/resources/
+name = "jak-tam-to-slowo"
+account_id = "d89bca31204306ee78e165e9f8ebd3be"
+
+[[d1_databases]]
+binding = "PREVIEW_DB"
+database_name = "jak-tam-to-slowo-preview"
+database_id = "48f31176-bc5f-427a-85c6-ef06cceb0ebd"
+migrations_dir = "migrations"

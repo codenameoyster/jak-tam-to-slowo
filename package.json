@@ -12,7 +12,8 @@
 		"test": "vitest run",
 		"test:browser": "bun run build && playwright test",
 		"credentials": "bun scripts/credentials.ts",
-		"deploy": "wrangler deploy"
+		"deploy": "wrangler d1 migrations apply DB --remote && wrangler deploy",
+		"preview": "wrangler d1 migrations apply PREVIEW_DB --remote --config wrangler.preview-migrations.toml && wrangler preview"
 	},
 	"dependencies": {
 		"@anthropic-ai/sdk": "^1.2.0",
