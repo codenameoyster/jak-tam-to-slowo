@@ -5,7 +5,11 @@ compatibility_date = "2026-10-21"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = false
 preview_urls = false
-routes = [{ pattern = "learn.rustatian.me", custom_domain = true }]
+routes = [
+	{ pattern = "learn.rustatian.me", custom_domain = true },
+	# Previews only: each branch gets <branch>.test.rustatian.me.
+	{ pattern = "test.rustatian.me", custom_domain = true, previews_enabled = true, enabled = false },
+]
 
 [[d1_databases]]
 binding = "DB"

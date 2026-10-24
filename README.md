@@ -100,19 +100,26 @@ The approved account is **TheRustatian**, `d89bca31204306ee78e165e9f8ebd3be`. `w
 
 The production usernames are `mąż` (ID `3c5d81fe-1a09-4d3f-bc88-e4009f01aeca`) and `żona` (ID `82c369b2-368d-4546-af9b-1b3941d8d8b1`). Their generated passwords are in `.wrangler/production/credentials.txt`. Stable account IDs and password hashes are in `.wrangler/production/accounts.json`. `.wrangler/production/secrets.json` must contain `ACCOUNTS`, `ANTHROPIC_API_KEY`, and `OPENAI_TRANSCRIPTION_API_KEY`. Preserve the account credentials. The directory uses mode `0700`; each file uses `0600`. Preserve these files and put a protected copy in the owner's password manager. Secret values must stay out of source,[Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/) deploys the Worker from GitHub. Do not deploy by hand. A merge to `main` runs `bun run deploy`, which applies pending D1 migrations to `jak-tam-to-slowo` and then deploys the Worker. Each other branch runs `bun run preview`, which applies pending migrations to the Preview database `jak-tam-to-slowo-preview` (`48f31176-bc5f-427a-85c6-ef06cceb0ebd`) and creates a [Preview](https://developers.cloudflare.com/workers/previews/) with its own URL. Use that URL to review a pull request.
 
-Previews use the Preview database and their own login limiter, so they do not change production cards or progress. Preview URLs are public, and the app asks for a login. Previews read `ACCOUNTS`, `ANTHROPIC_API_KEY`, and `OPENAI_TRANSCRIPTION_API_KEY` from the Preview base config. `wrangler.preview-migrations.toml` names the Preview database, because Wrangler applies migrations only to top-level D1 bindings.
+Previews are the test environment. Each Preview gets the URL `<branch>.test.rustatian.me` and a `workers.dev` URL. Previews use the Preview database and their own login limiter, so they do not change production cards or progress. Previews use two test accounts, `test-mąż` and `test-żona`, and real account passwords do not work there. `.wrangler/test/accounts.json` holds the test account IDs and password hashes, and `.wrangler/test/credentials.txt` holds their passwords. Previews read `ACCOUNTS`, `ANTHROPIC_API_KEY`, and `OPENAI_TRANSCRIPTION_API_KEY` from the Preview base config. `wrangler.preview-migrations.toml` names the Preview database, because Wrangler applies migrations only to top-level D1 bindings.
 
 Migrations run before the new code. Write each migration so that the running code still works with it. To remove a table or a column, first merge the code that stops using it, then merge the migration.
 
-Secrets do not change with a deploy. To change them, confirm the account and upload the protected secrets file. A change to the Preview base config applies only to new Previews:
+Secrets do not change with a deploy. To change the production secrets, confirm the account and upload the protected secrets file:
 
 ```sh
 bunx wrangler whoami --account d89bca31204306ee78e165e9f8ebd3be
 bunx wrangler secret bulk .wrangler/production/secrets.json
-bunx wrangler preview base-config secret bulk .wrangler/production/secrets.json
 ```
 
-`workers_dev = false` and `preview_urls = false` keep other public URLs of the production Worker disabled. Cloudflare creates the DNS record and certificate for the [Custom Domain](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/). Do not replace a conflicting record or change another app.
+To change the Preview secrets, use the test accounts file for `ACCOUNTS`. A change to the Preview base config applies only to new Previews:
+
+```sh
+bunx wrangler preview base-config secret put ACCOUNTS < .wrangler/test/accounts.json
+bunx wrangler preview base-config secret put ANTHROPIC_API_KEY
+bunx wrangler preview base-config secret put OPENAI_TRANSCRIPTION_API_KEY
+```
+
+`workers_dev = false` and `preview_urls = false` keep other public URLs of the production Worker disabled. The `test.rustatian.me` route serves Previews only. Cloudflare creates the DNS record and certificate for the [Custom Domain](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/). Do not replace a conflicting record or change another app.
 
 conflicting record or change another app.
 
