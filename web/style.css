@@ -170,15 +170,14 @@ button.word { border: 0; border-radius: 0; background: transparent; color: var(-
 .word [lang='ru'] { color: var(--secondary); font-weight: 400; }
 a.word { color: var(--accent-text); padding: 12px 44px 2px 16px; text-decoration: none; }
 .page > a.word { padding-inline: 2px; text-decoration: underline; text-underline-offset: 3px; }
-/* The similar words take five fixed rows, so the page keeps its height while the matches change. Empty rows stay transparent. */
-.similar .words-list { display: grid; grid-template-rows: repeat(5, 5.25rem); border: 0; border-radius: 0; background: transparent; overflow: visible; }
-.similar li { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-top: 0; background: var(--card); }
-.similar li:first-child { border-top: 1px solid var(--line); border-radius: 14px 14px 0 0; }
-.similar li:last-child { border-bottom-left-radius: 14px; border-bottom-right-radius: 14px; }
-.similar li:only-child { border-radius: 14px; }
-.similar li + li::before, .similar li.hint::after { display: none; }
-.similar li.hint { display: flex; align-items: center; margin: 0; padding: 0 16px; }
-.similar .word, .similar li > .hint { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Similar words: one row of fixed height under the field. The row scrolls sideways, so the page keeps its height while the matches change. */
+.similar { display: flex; align-items: center; gap: 8px; min-height: 50px; margin: -9px 0 13px; padding: 3px 2px; overflow-x: auto; scrollbar-width: none; }
+.similar::-webkit-scrollbar { display: none; }
+.similar .hint { flex: 0 0 auto; margin: 0; white-space: nowrap; }
+.similar [role='status'] { flex: 1 1 auto; white-space: normal; }
+.similar ul { display: flex; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.similar a { display: block; line-height: 42px; padding: 0 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--ink); font-weight: 500; text-decoration: none; white-space: nowrap; }
+.similar a [lang='ru'] { color: var(--secondary); font-weight: 400; }
 .search { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 10px; align-items: start; }
 .search label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .search input { min-height: 46px; padding-left: 40px; background: var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239c9a92' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='10.5' cy='10.5' r='6.5'/%3E%3Cpath d='m15.5 15.5 4.5 4.5'/%3E%3C/svg%3E") no-repeat 13px 50% / 18px; }

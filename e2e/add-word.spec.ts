@@ -59,7 +59,7 @@ test('keeps similar words visible while the next search runs', async ({ page, ba
 	await searched;
 	await page.unroute('**/api/cards?*');
 	await input.fill('');
-	await expect(similar).toHaveCount(0);
+	await expect(similar.getByRole('link')).toHaveCount(0);
 });
 
 test('keeps the similar words area height while the number of matches changes', async ({ page, baseURL }) => {
@@ -81,6 +81,18 @@ test('keeps the similar words area height while the number of matches changes', 
 	await input.fill(`${token} x`);
 	await expect(similar.getByText('Brak podobnych słówek.', { exact: true })).toBeVisible();
 	expect(await height()).toBe(full);
+	await input.fill('');
+	await expect(similar.getByRole('link')).toHaveCount(0);
+	expect(await height()).toBe(full);
+});
+
+test('shows the prepared card without scrolling', async ({ page }) => {
+	await page.setViewportSize({ width: 390, height: 664 });
+	await page.getByRole('button', { name: 'Dodaj', exact: true }).click();
+	await page.getByLabel('Słowo lub wyrażenie').fill('słowo');
+	await expect(page.getByRole('complementary', { name: 'Podobne słówka' })).not.toContainText('Szukanie');
+	await page.getByRole('button', { name: 'Przygotuj fiszkę', exact: true }).click();
+	await expect(page.getByRole('heading', { name: 'Sprawdź fiszkę', exact: true })).toBeInViewport();
 });
 
 test('restores the selected meaning and resends it from Przygotuj fiszkę', async ({ page }) => {
@@ -107,7 +119,7 @@ test('keeps an uncertain Save retry-only across reload and opens confirmed edits
 	const before = (await allCards(page.request)).length;
 	await page.getByRole('button', { name: 'Dodaj', exact: true }).click();
 	await page.getByLabel('Słowo lub wyrażenie').fill('słowo');
-	await expect(page.getByText(WORD_DRAFT.meaningRu, { exact: true })).toHaveAttribute('lang', 'ru');
+	await expect(page.getByRole('link', { name: 'Słowo / Слово', exact: true }).locator('[lang="ru"]')).toHaveText('Слово');
 	await page.getByRole('link', { name: 'Słowo / Слово', exact: true }).click();
 	await expect(page.getByRole('heading', { name: 'Słówka', exact: true })).toBeVisible();
 	await expect(page.getByLabel('Po polsku', { exact: true })).toHaveValue('Słowo');

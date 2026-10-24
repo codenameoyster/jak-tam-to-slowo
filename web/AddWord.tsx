@@ -26,6 +26,8 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy }: { userId: str
 	const [searchError, setSearchError] = useState('');
 	const [dictationId, setDictationId] = useState(0);
 	const input = useRef<HTMLInputElement>(null);
+	// Set when a new card or a meaning list arrives, so the page scrolls to it once.
+	const reveal = useRef(false);
 	const query = draft?.text.trim() ?? '';
 	const locked = busy || !!draft?.submission;
 
@@ -54,6 +56,12 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy }: { userId: str
 		return () => { cancelled = true; clearTimeout(timer); };
 	}, [query]);
 
+	useEffect(() => {
+		if (!reveal.current) return;
+		reveal.current = false;
+		document.getElementById('draft-result')?.scrollIntoView({ block: 'start' });
+	}, [draft?.card, draft?.choices]);
+
 	function change(value: Partial<Draft>) {
 		setDraft(current => ({ ...(current ?? { id: crypto.randomUUID(), text: '', choices: [] }), ...value }));
 		setError('');
@@ -68,6 +76,7 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy }: { userId: str
 		change({ meaningRu });
 		try {
 			const result = await api<DraftResult>('/cards/draft', { method: 'POST', body: JSON.stringify({ text: draft.text, meaningRu }) });
+			reveal.current = true;
 			change(result.kind === 'draft' ? { card: result.card, choices: [] } : { choices: result.choices, card: undefined });
 		} catch (error) {
 			setError(error instanceof ApiError ? error.message : 'Brak połączenia z serwerem. Szkic został w formularzu. Spróbuj ponownie.');
@@ -103,7 +112,6 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy }: { userId: str
 	return <section className="page add" aria-labelledby="add-title" aria-busy={busy}>
 		<h1 id="add-title">Dodaj słówko</h1>
 		<p className="intro">Wpisz lub podyktuj słowo po polsku albo po rosyjsku.</p>
-		<p className="hint">Przygotuj fiszkę, sprawdź tekst i zapisz ją we wspólnej kolekcji.</p>
 		<form onSubmit={event => { event.preventDefault(); void generate(); }}>
 			<fieldset disabled={locked}>
 				<label htmlFor="draft-text">Słowo lub wyrażenie</label>
@@ -112,23 +120,22 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy }: { userId: str
 					{!draft?.card && <Dictation key={dictationId} language="auto" disabled={locked} onText={text => { if (input.current) change({ text: dictatedValue(input.current, text), meaningRu: undefined, choices: [], card: undefined }); }} />}
 				</div>
 			</fieldset>
+			<aside className="similar" aria-label="Podobne słówka">{searchError ? <p className="hint" role="status">{searchError}</p>
+				: !query ? <p className="hint">Tu pojawią się podobne słówka z kolekcji.</p>
+				: !matches ? <p className="hint">Szukanie podobnych słówek…</p>
+				: !matches.length ? <p className="hint">Brak podobnych słówek.</p>
+				: <><span className="hint">Już w kolekcji:</span><ul>{matches.map(card => <li key={card.id}>
+					<a href="#words" aria-disabled={busy} onClick={event => { event.preventDefault(); if (!busy) onOpen(card); }}><span lang="pl">{card.pl}</span> / <span lang="ru">{card.ru}</span></a>
+				</li>)}</ul></>}</aside>
 			<button className="primary" disabled={locked || !query}>Przygotuj fiszkę</button>
 		</form>
-		{searchError && <p className="hint" role="status">{searchError}</p>}
-		{query && !searchError && <aside className="similar" aria-label="Podobne słówka">
-			<h2>Podobne słówka</h2>
-			<ul className="words-list">{matches?.length === 0 ? <li className="hint">Brak podobnych słówek.</li> : matches?.map(card => <li key={card.id}>
-				<a className="word" href="#words" aria-disabled={busy} onClick={event => { event.preventDefault(); if (!busy) onOpen(card); }}><span lang="pl">{card.pl}</span> / <span lang="ru">{card.ru}</span></a>
-				<p className="hint" lang="ru">{card.meaningRu}</p>
-			</li>)}</ul>
-		</aside>}
-		{!!draft?.choices.length && <fieldset className="meaning-choices" disabled={locked}>
+		{!!draft?.choices.length && <fieldset id="draft-result" className="meaning-choices" disabled={locked}>
 			<legend>Wybierz znaczenie</legend>
 			{draft.choices.map(meaning => <button key={meaning} lang="ru" onClick={() => void generate(meaning)}>{meaning}</button>)}
 		</fieldset>}
 		{draft?.meaningRu && <p className="hint">Wybrane znaczenie: <span lang="ru">{draft.meaningRu}</span></p>}
 		{draft?.submission && <p className="hint">Zapis nie został potwierdzony. Zapisz ponownie. Po potwierdzeniu fiszkę można zmienić w sekcji „Słówka”.</p>}
-		{draft?.card && <form onSubmit={save}>
+		{draft?.card && <form id="draft-result" onSubmit={save}>
 			<h2>Sprawdź fiszkę</h2>
 			<p className="hint">Po zapisaniu fiszka pojawi się u obu osób.</p>
 			<fieldset disabled={locked}><CardFields value={draft.card} onChange={card => change({ card })} /></fieldset>
