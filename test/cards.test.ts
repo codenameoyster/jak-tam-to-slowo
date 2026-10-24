@@ -163,13 +163,13 @@ it('accepts only one simultaneous edit of the same content version', async () =>
 	expect(await env.DB.prepare('SELECT version, example_ru FROM cards WHERE id = ?').bind(cardId).first()).toEqual({ version: 2, example_ru: saved.exampleRu });
 });
 
-it('pages 30 cards in descending creation and ID order without repeats after an insertion', async () => {
+it('pages 5 cards in descending creation and ID order without repeats after an insertion', async () => {
 	vi.spyOn(Date, 'now').mockReturnValue(now);
 	const cookie = await login(USER_A.id);
-	const ids = Array.from({ length: 31 }, (_, index) => `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`);
+	const ids = Array.from({ length: 6 }, (_, index) => `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`);
 	for (const id of ids) expect((await request('/api/cards', { method: 'POST', cookie, body: { ...CARD_A, id } })).status).toBe(201);
 	const first = await (await request('/api/cards', { cookie })).json() as { cards: { id: string }[]; nextCursor: string };
-	expect(first.cards).toHaveLength(30);
+	expect(first.cards).toHaveLength(5);
 	expect(first.cards.map(card => card.id)).toEqual(ids.slice(1).reverse());
 	expect(first.nextCursor).toBeTypeOf('string');
 	vi.spyOn(Date, 'now').mockReturnValue(now + 1);

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
-import type { CardPage } from '../shared/types';
 import { ONION_DRAFT, USER_A, USER_B, WORD_DRAFT } from '../test/fixtures';
+import { allCards } from './cards';
 
 let createdIds: string[];
 test.beforeEach(async ({ page, baseURL }) => {
@@ -13,8 +13,8 @@ test.beforeEach(async ({ page, baseURL }) => {
 
 test.afterEach(async ({ page, baseURL }) => {
 	const headers = { Origin: baseURL! };
-	const list: CardPage = await (await page.request.get('/api/cards')).json();
-	for (const card of list.cards.filter(card => createdIds.includes(card.id))) {
+	const list = await allCards(page.request);
+	for (const card of list.filter(card => createdIds.includes(card.id))) {
 		expect((await page.request.patch(`/api/cards/${card.id}`, { headers, data: { version: card.version, archived: true } })).status()).toBe(200);
 	}
 });
@@ -61,7 +61,7 @@ test('keeps an uncertain Save retry-only across reload and opens confirmed edits
 	const seedId = crypto.randomUUID();
 	expect((await page.request.post('/api/cards', { headers: { Origin: baseURL! }, data: { id: seedId, ...WORD_DRAFT } })).status()).toBe(201);
 	createdIds.push(seedId);
-	const before = (await (await page.request.get('/api/cards')).json()).cards.length;
+	const before = (await allCards(page.request)).length;
 	await page.getByRole('button', { name: 'Dodaj', exact: true }).click();
 	await page.getByLabel('Słowo lub wyrażenie').fill('słowo');
 	await expect(page.getByText(WORD_DRAFT.meaningRu, { exact: true })).toHaveAttribute('lang', 'ru');
@@ -73,7 +73,7 @@ test('keeps an uncertain Save retry-only across reload and opens confirmed edits
 	await page.getByRole('button', { name: 'Przygotuj fiszkę', exact: true }).click();
 	await expect(page.getByLabel('Przykład po polsku')).toHaveValue('Nie znam tego słowa.');
 	await expect(page.getByLabel('Przykład po rosyjsku')).toHaveValue('Я не знаю этого слова.');
-	expect((await (await page.request.get('/api/cards')).json()).cards).toHaveLength(before);
+	expect(await allCards(page.request)).toHaveLength(before);
 	await page.getByLabel('Po rosyjsku', { exact: true }).fill('Моё слово');
 	await page.getByLabel('Przykład po polsku').fill('To moje słowo.');
 	await page.getByLabel('Inne odpowiedzi po polsku').fill('Wyraz\n\n');
@@ -113,7 +113,7 @@ test('keeps an uncertain Save retry-only across reload and opens confirmed edits
 	expect((await retry).request().postData()).toBe(submittedBody);
 	await expect(page.getByRole('status')).toContainText('Fiszka zapisana.');
 	await expect(page.getByLabel('Słowo lub wyrażenie')).toHaveValue('');
-	const cards = (await (await page.request.get('/api/cards')).json()).cards;
+	const cards = await allCards(page.request);
 	expect(cards).toHaveLength(before + 1);
 	expect(cards.find((card: { id: string }) => card.id === savedId)).toMatchObject({ ru: 'Моё слово', examplePl: 'To moje słowo.', alternativesPl: ['Wyraz'], version: 1, createdBy: USER_A.id });
 	expect(await page.evaluate(() => Object.keys(sessionStorage))).toEqual([]);
@@ -123,9 +123,9 @@ test('keeps an uncertain Save retry-only across reload and opens confirmed edits
 	const edit = page.waitForResponse(response => response.url().endsWith(`/api/cards/${savedId}`) && response.request().method() === 'PATCH');
 	await page.getByRole('button', { name: 'Zapisz', exact: true }).click();
 	expect((await edit).status()).toBe(200);
-	const updated: CardPage = await (await page.request.get('/api/cards')).json();
-	expect(updated.cards).toHaveLength(before + 1);
-	expect(updated.cards.find(card => card.id === savedId)).toMatchObject({ examplePl: 'Znam to słowo.', version: 2 });
+	const updated = await allCards(page.request);
+	expect(updated).toHaveLength(before + 1);
+	expect(updated.find(card => card.id === savedId)).toMatchObject({ examplePl: 'Znam to słowo.', version: 2 });
 });
 
 test('recovers meaning choices and the selected meaning until logout independently of study direction', async ({ page }, testInfo) => {
@@ -234,9 +234,9 @@ test('retains input on provider authentication failure and retains edits on a re
 	expect(result.status()).toBe(201);
 	expect(result.request().postDataJSON().id).toBe((await save).request().postDataJSON().id);
 	await expect(page.getByRole('status')).toContainText('Fiszka zapisana.');
-	const cards: CardPage = await (await page.request.get('/api/cards')).json();
-	expect(cards.cards).toHaveLength(1);
-	expect(cards.cards[0]).toMatchObject({ meaningRu: 'Единица речи', exampleRu: 'Я не знаю этого слова.', version: 1 });
+	const cards = await allCards(page.request);
+	expect(cards).toHaveLength(1);
+	expect(cards[0]).toMatchObject({ meaningRu: 'Единица речи', exampleRu: 'Я не знаю этого слова.', version: 1 });
 });
 
 test('keeps the preview editable and sends no create when recovery storage fails', async ({ page }) => {
@@ -253,7 +253,7 @@ test('keeps the preview editable and sends no create when recovery storage fails
 	await expect(page.getByLabel('Po polsku', { exact: true })).toBeEnabled();
 	await expect(page.getByRole('button', { name: 'Przygotuj fiszkę', exact: true })).toBeEnabled();
 	expect(createdIds).toEqual([]);
-	expect((await (await page.request.get('/api/cards')).json()).cards).toEqual([]);
+	expect(await allCards(page.request)).toEqual([]);
 });
 
 test('keeps an edited preview outside source dictation across reload and save', async ({ page }, testInfo) => {

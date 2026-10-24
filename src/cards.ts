@@ -51,11 +51,11 @@ async function listCards(url: URL, env: Env): Promise<CardPage> {
 	}
 	const { results } = await env.DB.prepare(`SELECT ${columns} FROM cards
 		WHERE archived = 0 AND (instr(search_pl, ?1) > 0 OR instr(search_ru, ?1) > 0)
-		AND (?2 IS NULL OR (created_at, id) < (?2, ?3)) ORDER BY created_at DESC, id DESC LIMIT 31`)
+		AND (?2 IS NULL OR (created_at, id) < (?2, ?3)) ORDER BY created_at DESC, id DESC LIMIT 6`)
 		.bind(searchKey(query), time, id).all<CardRow>();
-	const cards = results.slice(0, 30).map(fromRow);
+	const cards = results.slice(0, 5).map(fromRow);
 	const last = cards.at(-1);
-	return { cards, nextCursor: results.length > 30 && last ? `${last.createdAt}:${last.id}` : null };
+	return { cards, nextCursor: results.length > 5 && last ? `${last.createdAt}:${last.id}` : null };
 }
 
 export async function handleCards(request: Request, env: Env, user: User): Promise<Response | null> {

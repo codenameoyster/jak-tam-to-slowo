@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { spawnSync } from 'node:child_process';
 import { CARD_A, CARD_B, USER_A, USER_B } from '../test/fixtures';
-import type { CardPage } from '../shared/types';
+import { allCards } from './cards';
 
 let cardId: string;
 test.beforeEach(async ({ context }) => {
@@ -10,8 +10,8 @@ test.beforeEach(async ({ context }) => {
 });
 test.afterEach(async ({ page, baseURL }) => {
 	expect((await page.request.post('/api/session', { headers: { Origin: baseURL! }, data: { username: USER_A.username, password: USER_A.password } })).status()).toBe(200);
-	const list: CardPage = await (await page.request.get('/api/cards')).json();
-	const card = list.cards.find(card => card.id === cardId);
+	const list = await allCards(page.request);
+	const card = list.find(card => card.id === cardId);
 	if (card) expect((await page.request.patch(`/api/cards/${card.id}`, { headers: { Origin: baseURL! }, data: { version: card.version, archived: true } })).status()).toBe(200);
 });
 
@@ -59,8 +59,8 @@ for (const scenario of [
 	expect((await saved).status()).toBe(scenario.conflict ? 409 : 200);
 	if (scenario.conflict) {
 		await expect(page.getByLabel('Przykład po polsku')).toHaveValue('To mój nowy dom.');
-		const list: CardPage = await (await page.request.get('/api/cards')).json();
-		expect(list.cards.find(card => card.id === cardId)).toMatchObject({ version: 2, examplePl: 'To dom innego ucznia.' });
+		const list = await allCards(page.request);
+		expect(list.find(card => card.id === cardId)).toMatchObject({ version: 2, examplePl: 'To dom innego ucznia.' });
 	} else {
 		await expect(page.getByRole('button', { name: 'Domek / Дом', exact: true })).toBeVisible();
 		await page.reload();

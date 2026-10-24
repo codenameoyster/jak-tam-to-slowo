@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
-import type { Card, CardPage, ReviewResult, StudyBatch } from '../shared/types';
+import type { Card, ReviewResult, StudyBatch } from '../shared/types';
 import { USER_A, USER_B, WORD_DRAFT } from '../test/fixtures';
+import { allCards } from './cards';
 
 async function signIn(page: Page, user: typeof USER_A) {
 	await page.setExtraHTTPHeaders({ 'CF-Connecting-IP': `workflow-${crypto.randomUUID()}` });
@@ -103,8 +104,8 @@ test('shares the server key for generation and grading while keeping learner pro
 		await page.getByRole('button', { name: 'Nauka', exact: true }).click();
 		await expect(page.getByTestId('study-term')).toHaveCount(0);
 	} finally {
-		const list: CardPage = await (await page.request.get('/api/cards')).json();
-		const active = list.cards.find(item => item.id === card?.id);
+		const list = await allCards(page.request);
+		const active = list.find(item => item.id === card?.id);
 		if (active) expect((await page.request.patch(`/api/cards/${active.id}`, { headers, data: { version: active.version, archived: true } })).status()).toBe(200);
 		await page.request.patch('/api/me', { headers, data: { direction: 'ru-pl' } });
 		await other.request.patch('/api/me', { headers, data: { direction: 'ru-pl' } });

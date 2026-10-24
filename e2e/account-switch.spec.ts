@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
-import type { CardPage } from '../shared/types';
 import { CARD_B, USER_A, USER_B } from '../test/fixtures';
+import { allCards } from './cards';
 
 async function login(page: Page, user: typeof USER_A) {
 	await page.getByLabel('Nazwa użytkownika').fill(user.username);
@@ -47,8 +47,8 @@ test('rejects logout from an old A tab after the shared cookie changes to B', as
 			await page.request.post('/api/session', { headers, data: { username: user.username, password: user.password } });
 			await page.request.patch('/api/me', { headers, data: { direction: 'ru-pl' } });
 		}
-		const list: CardPage = await (await page.request.get('/api/cards')).json();
-		const card = list.cards.find(card => card.id === id);
+		const list = await allCards(page.request);
+		const card = list.find(card => card.id === id);
 		if (card) await page.request.patch(`/api/cards/${id}`, { headers, data: { version: card.version, archived: true } });
 		await other.close();
 	}

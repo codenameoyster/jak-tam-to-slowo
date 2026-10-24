@@ -1,7 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
 import { spawnSync } from 'node:child_process';
-import type { Card, CardPage, ReviewInput, ReviewResult, StudyBatch } from '../shared/types';
+import type { Card, ReviewInput, ReviewResult, StudyBatch } from '../shared/types';
 import { CARD_B, USER_A, USER_B } from '../test/fixtures';
+import { allCards } from './cards';
 
 let headers: Record<string, string>;
 
@@ -13,8 +14,8 @@ async function login(page: Page, user = USER_A) {
 }
 
 async function archive(page: Page, keep?: string) {
-	const list: CardPage = await (await page.request.get('/api/cards')).json();
-	for (const card of list.cards.filter(card => card.id !== keep)) {
+	const list = await allCards(page.request);
+	for (const card of list.filter(card => card.id !== keep)) {
 		expect((await page.request.patch(`/api/cards/${card.id}`, { headers, data: { version: card.version, archived: true } })).status()).toBe(200);
 	}
 }

@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import type { CardPage, ReviewInput } from '../shared/types';
+import type { ReviewInput } from '../shared/types';
 import { CARD_A, CARD_B, USER_A } from '../test/fixtures';
+import { allCards } from './cards';
 
 interface AudioTest {
 	checked: string[]; selected: string[]; activeTracks: number; stopCalls: number; requests: number;
@@ -78,16 +79,16 @@ test.beforeEach(async ({ page, baseURL }) => {
 	await page.setExtraHTTPHeaders(headers);
 	expect((await page.request.post('/api/session', { headers, data: { username: USER_A.username, password: USER_A.password } })).status()).toBe(200);
 	expect((await page.request.patch('/api/me', { headers, data: { direction: 'ru-pl' } })).status()).toBe(200);
-	const list: CardPage = await (await page.request.get('/api/cards')).json();
-	for (const card of list.cards) expect((await page.request.patch(`/api/cards/${card.id}`, { headers, data: { version: card.version, archived: true } })).status()).toBe(200);
+	const list = await allCards(page.request);
+	for (const card of list) expect((await page.request.patch(`/api/cards/${card.id}`, { headers, data: { version: card.version, archived: true } })).status()).toBe(200);
 	expect((await page.request.post('/api/cards', { headers, data: { ...CARD_A, id: crypto.randomUUID() } })).status()).toBe(201);
 	expect((await page.request.post('/api/cards', { headers, data: { ...CARD_B, id: crypto.randomUUID() } })).status()).toBe(201);
 });
 
 test.afterEach(async ({ page }) => {
 	expect((await page.request.post('/api/session', { headers, data: { username: USER_A.username, password: USER_A.password } })).status()).toBe(200);
-	const list: CardPage = await (await page.request.get('/api/cards')).json();
-	for (const card of list.cards) expect((await page.request.patch(`/api/cards/${card.id}`, { headers, data: { version: card.version, archived: true } })).status()).toBe(200);
+	const list = await allCards(page.request);
+	for (const card of list) expect((await page.request.patch(`/api/cards/${card.id}`, { headers, data: { version: card.version, archived: true } })).status()).toBe(200);
 });
 
 async function start(page: Page) {
