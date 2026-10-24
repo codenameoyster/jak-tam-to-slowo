@@ -8,7 +8,7 @@ const string = { type: 'string' }, strings = { type: 'array', items: string };
 const schema = { type: 'object', properties: { result: { anyOf: [
 	{ type: 'object', properties: { kind: { type: 'string', enum: ['choices'] }, choices: strings }, required: ['kind', 'choices'], additionalProperties: false },
 	{ type: 'object', properties: { kind: { type: 'string', enum: ['draft'] }, card: {
-		type: 'object', properties: { pl: string, ru: string, examplePl: string, exampleRu: string, meaningRu: string, alternativesPl: strings, alternativesRu: strings },
+		type: 'object', properties: { pl: string, ru: string, examplePl: string, exampleRu: string, meaningRu: string, alternativesPl: { ...strings, minItems: 1 }, alternativesRu: strings },
 		required: ['pl', 'ru', 'examplePl', 'exampleRu', 'meaningRu', 'alternativesPl', 'alternativesRu'], additionalProperties: false,
 	} }, required: ['kind', 'card'], additionalProperties: false },
 ] } }, required: ['result'], additionalProperties: false };
