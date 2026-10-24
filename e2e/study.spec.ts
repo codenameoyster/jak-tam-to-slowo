@@ -1,8 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
-import { spawnSync } from 'node:child_process';
-import type { Card, ReviewInput, ReviewResult, StudyBatch } from '../shared/types';
+import type { Card, ReviewResult, StudyBatch } from '../shared/types';
 import { CARD_B, USER_A, USER_B } from '../test/fixtures';
-import { allCards } from './cards';
+import { allCards, sql } from './cards';
 
 let headers: Record<string, string>;
 
@@ -37,19 +36,6 @@ async function answer(page: Page, text: string) {
 	await expect(page.getByRole('status').filter({ hasText: 'Dobrze' })).toBeVisible();
 }
 
-async function reachRefill(page: Page, cards: Card[]) {
-	for (const card of cards.slice(0, 7)) {
-		await expect(page.getByTestId('study-term')).toHaveText(card.ru);
-		await answer(page, card.pl);
-		await page.getByRole('button', { name: 'Dalej', exact: true }).click();
-	}
-}
-
-function sql(command: string) {
-	const result = spawnSync('bun', ['x', 'wrangler', 'd1', 'execute', 'DB', '--local', '--persist-to', '.wrangler/playwright/state', '--command', command], { encoding: 'utf8' });
-	expect(result.status, result.stderr).toBe(0);
-}
-
 test.beforeEach(async ({ page, baseURL }) => {
 	headers = { Origin: baseURL!, 'CF-Connecting-IP': `study-${crypto.randomUUID()}` };
 	await page.setExtraHTTPHeaders(headers);
@@ -63,57 +49,30 @@ test.afterEach(async ({ page }) => {
 	await archive(page);
 });
 
-test('refills once at three unanswered cards, keeps the active card in the cap, and removes overlapping IDs', async ({ page }, testInfo) => {
-	const cards = await seed(page, 17);
-	const refills: string[] = [], reviews: ReviewInput[] = [];
-	const received = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
-	page.on('request', request => { if (request.url().endsWith('/api/reviews')) reviews.push(request.postDataJSON()); });
-	await page.route('**/api/study?*', async route => {
-		if (!new URL(route.request().url()).searchParams.get('exclude')) return route.continue();
-		refills.push(route.request().url());
-		const response = await route.fetch();
-		const batch: StudyBatch = await response.json();
-		if (refills.length === 1) {
-			received.resolve();
-			await release.promise;
-			// Inject an overlapping response to check client deduplication.
-			batch.cards = [{ card: cards[7], progress: null }, ...batch.cards, ...batch.cards];
-		}
-		await route.fulfill({ response, json: batch });
-	});
+test('builds the queue again after each answer and shows the number of ready words', async ({ page }, testInfo) => {
+	const cards = await seed(page, 12);
+	const loads: string[] = [];
+	page.on('request', request => { if (request.url().endsWith('/api/study')) loads.push(request.url()); });
 	await page.goto('/');
-	await expect(page.getByTestId('study-remaining')).toHaveText('W kolejce: 10');
+	await expect(page.getByTestId('study-remaining')).toHaveText('W kolejce: 12');
 	await expect(page.getByText('Это наш дом.', { exact: true })).toBeVisible();
 	await expect(page.getByLabel('Odpowiedź po polsku')).toHaveAttribute('lang', 'pl');
 	await page.screenshot({ path: `.wrangler/playwright/study-answer-${testInfo.project.name}-${page.viewportSize()!.width}.png`, fullPage: true, animations: 'disabled', scale: 'css' });
-	for (const card of cards.slice(0, 7)) {
-		await answer(page, card.pl);
-		expect(refills).toHaveLength(0);
-		await page.getByRole('button', { name: 'Dalej', exact: true }).click();
-	}
-	await received.promise;
-	try {
-		await expect(page.getByTestId('study-term')).toHaveText('Дом 8');
-		await expect(page.getByTestId('study-remaining')).toHaveText('W kolejce: 3');
-		await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
-		expect(refills).toHaveLength(1);
-		const params = new URL(refills[0]).searchParams;
-		expect(params.get('limit')).toBe('7');
-		expect(params.get('exclude')?.split(',')).toEqual(cards.slice(7, 10).map(card => card.id));
-		expect(reviews).toHaveLength(7);
-		await answer(page, cards[7].pl);
-		await page.getByRole('button', { name: 'Dalej', exact: true }).click();
-		await expect(page.getByTestId('study-term')).toHaveText('Дом 9');
-		expect(refills).toHaveLength(1);
-	} finally { release.resolve(); }
-	await expect(page.getByTestId('study-remaining')).toHaveText('W kolejce: 9');
-	for (const card of cards.slice(8)) {
+	// Another tab answers the second card, so only a new queue skips it.
+	expect((await page.request.post('/api/reviews', { headers, data: { attemptId: crypto.randomUUID(), cardId: cards[1].id, cardVersion: 1, progressVersion: 0, direction: 'ru-pl', action: 'answer', answer: cards[1].pl } })).status()).toBe(200);
+	await answer(page, cards[0].pl);
+	await expect(page.getByTestId('study-remaining')).toHaveText('W kolejce: 10');
+	await page.getByRole('button', { name: 'Dalej', exact: true }).click();
+	await expect(page.getByTestId('study-term')).toHaveText(cards[2].ru);
+	expect(loads).toHaveLength(2);
+	for (const card of cards.slice(2)) {
 		await expect(page.getByTestId('study-term')).toHaveText(card.ru);
 		await answer(page, card.pl);
 		await page.getByRole('button', { name: 'Dalej', exact: true }).click();
 	}
 	await expect(page.getByText('Na dziś wszystko gotowe.', { exact: true })).toBeVisible();
-	expect(reviews.map(review => review.cardId)).toEqual(cards.map(card => card.id));
+	await expect(page.getByTestId('study-remaining')).toHaveText('W kolejce: 0');
+	expect(loads).toHaveLength(12);
 });
 
 for (const scenario of [
@@ -141,7 +100,7 @@ test('changes the direction in one step and keeps the card in place', async ({ p
 	await expect(term).toHaveText('Дом');
 	const top = (await term.boundingBox())!.y;
 	const received = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
-	await page.route('**/api/study?*', async route => { received.resolve(); await release.promise; await route.continue(); });
+	await page.route('**/api/me', async route => { received.resolve(); await release.promise; await route.continue(); });
 	await page.getByLabel('PL -> RU', { exact: true }).click();
 	await received.promise;
 	try {
@@ -167,16 +126,12 @@ test('changes the direction in one step and keeps the card in place', async ({ p
 	await expect(page.getByLabel('PL -> RU', { exact: true })).toHaveAttribute('aria-pressed', 'true');
 });
 
-for (const scenario of [
-	{ name: 'direction changes', change: 'direction' },
-	{ name: 'account changes', change: 'account' },
-]) test(`ignores an old refill after ${scenario.name}`, async ({ page }) => {
-	const cards = await seed(page, 17);
+test('ignores an old queue after the account changes', async ({ page }) => {
+	const cards = await seed(page, 3);
 	const received = Promise.withResolvers<void>(), release = Promise.withResolvers<void>(), finished = Promise.withResolvers<void>();
-	let reviews = 0;
-	page.on('request', request => { if (request.url().endsWith('/api/reviews')) reviews++; });
-	await page.route('**/api/study?*', async route => {
-		if (!new URL(route.request().url()).searchParams.get('exclude')) return route.continue();
+	let loads = 0;
+	await page.route('**/api/study', async route => {
+		if (++loads !== 2) return route.continue();
 		const response = await route.fetch();
 		received.resolve();
 		await release.promise;
@@ -184,49 +139,48 @@ for (const scenario of [
 		finished.resolve();
 	});
 	await page.goto('/');
-	await reachRefill(page, cards);
+	await answer(page, cards[0].pl);
 	await received.promise;
 	try {
 		await archive(page, cards[0].id);
-		if (scenario.change === 'direction') {
-			await page.getByLabel('PL -> RU', { exact: true }).click();
-			await expect(page.getByLabel('PL -> RU', { exact: true })).toHaveAttribute('aria-pressed', 'true');
-			await expect(page.getByTestId('study-term')).toHaveText('Dom');
-		} else {
-			await page.getByRole('button', { name: 'Wyloguj', exact: true }).click();
-			await login(page, USER_B);
-			await expect(page.getByTestId('study-term')).toHaveText('Дом');
-		}
+		await page.getByRole('button', { name: 'Wyloguj', exact: true }).click();
+		await login(page, USER_B);
+		await expect(page.getByTestId('study-term')).toHaveText('Дом');
 	} finally { release.resolve(); }
 	await finished.promise;
 	await expect(page.getByTestId('study-remaining')).toHaveText('W kolejce: 1');
-	expect(reviews).toBe(7);
-	await page.getByLabel(scenario.change === 'direction' ? 'Odpowiedź po rosyjsku' : 'Odpowiedź po polsku').fill(scenario.change === 'direction' ? 'Дом' : 'Dom');
+	await expect(page.getByTestId('study-term')).toHaveText('Дом');
+	await page.getByLabel('Odpowiedź po polsku').fill('Dom');
 	await page.getByRole('button', { name: 'Sprawdź', exact: true }).click();
 	await page.getByRole('button', { name: 'Dalej', exact: true }).click();
 	await expect(page.getByText('Na dziś wszystko gotowe.', { exact: true })).toBeVisible();
 });
 
-test('keeps the remaining cards and typed text after a failed refill', async ({ page }) => {
-	const cards = await seed(page, 11);
-	await page.route('**/api/study?*', route => new URL(route.request().url()).searchParams.get('exclude')
+test('keeps the next card, the error, and typed text after a failed queue load', async ({ page }) => {
+	const cards = await seed(page, 3);
+	let loads = 0;
+	await page.route('**/api/study', route => ++loads === 2
 		? route.fulfill({ status: 503, json: { code: 'internal_error', error: 'Kolejka jest chwilowo niedostępna.' } }) : route.continue());
 	await page.goto('/');
-	await reachRefill(page, cards);
+	await answer(page, cards[0].pl);
 	await expect(page.getByRole('alert')).toContainText('Kolejka jest chwilowo niedostępna.');
-	await expect(page.getByTestId('study-term')).toHaveText('Дом 8');
+	await page.getByRole('button', { name: 'Dalej', exact: true }).click();
+	await expect(page.getByTestId('study-term')).toHaveText('Дом 2');
+	await expect(page.getByRole('alert')).toContainText('Kolejka jest chwilowo niedostępna.');
 	await page.getByLabel('Odpowiedź po polsku').fill('мой ответ');
-	await page.unroute('**/api/study?*');
 	await page.getByRole('button', { name: 'Ponów', exact: true }).click();
-	await expect(page.getByTestId('study-remaining')).toHaveText('W kolejce: 4');
+	await expect(page.getByTestId('study-remaining')).toHaveText('W kolejce: 2');
+	await expect(page.getByRole('alert')).toHaveCount(0);
+	await expect(page.getByTestId('study-term')).toHaveText('Дом 2');
 	await expect(page.getByLabel('Odpowiedź po polsku')).toHaveValue('мой ответ');
 });
 
-test('keeps an uncertain review retry visible when an older refill succeeds', async ({ page }) => {
-	const cards = await seed(page, 17);
+test('keeps an uncertain review retry visible when an older queue load succeeds', async ({ page }) => {
+	const cards = await seed(page, 3);
 	const received = Promise.withResolvers<void>(), release = Promise.withResolvers<void>(), finished = Promise.withResolvers<void>();
-	await page.route('**/api/study?*', async route => {
-		if (!new URL(route.request().url()).searchParams.get('exclude')) return route.continue();
+	let loads = 0;
+	await page.route('**/api/study', async route => {
+		if (++loads !== 2) return route.continue();
 		const response = await route.fetch();
 		received.resolve();
 		await release.promise;
@@ -234,7 +188,7 @@ test('keeps an uncertain review retry visible when an older refill succeeds', as
 		finished.resolve();
 	});
 	await page.goto('/');
-	await reachRefill(page, cards);
+	await answer(page, cards[0].pl);
 	await received.promise;
 	let original = '';
 	await page.route('**/api/reviews', async route => {
@@ -243,18 +197,19 @@ test('keeps an uncertain review retry visible when an older refill succeeds', as
 		await route.abort();
 	});
 	try {
-		await page.getByLabel('Odpowiedź po polsku').fill('Dom 8');
+		await page.getByRole('button', { name: 'Dalej', exact: true }).click();
+		await page.getByLabel('Odpowiedź po polsku').fill('Dom 2');
 		await page.getByRole('button', { name: 'Sprawdź', exact: true }).click();
 		await expect(page.getByRole('alert')).toContainText('nie został potwierdzony');
 	} finally { release.resolve(); }
 	await finished.promise;
 	await expect(page.getByRole('button', { name: 'Ponów', exact: true })).toBeVisible();
-	await expect(page.getByLabel('Odpowiedź po polsku')).toHaveValue('Dom 8');
+	await expect(page.getByLabel('Odpowiedź po polsku')).toHaveValue('Dom 2');
 	await page.unroute('**/api/reviews');
 	const replay = page.waitForResponse(response => response.url().endsWith('/api/reviews'));
 	await page.getByRole('button', { name: 'Ponów', exact: true }).click();
 	expect((await replay).request().postData()).toBe(original);
-	await expect(page.getByTestId('study-correction')).toHaveText('Dom 8');
+	await expect(page.getByTestId('study-correction')).toHaveText('Dom 2');
 });
 
 test('shows an empty collection and refreshes it when the page becomes visible', async ({ page }) => {
@@ -276,7 +231,8 @@ for (const scenario of [
 ]) test(scenario.name, async ({ page }) => {
 	const [card] = await seed(page);
 	expect((await page.request.post('/api/reviews', { headers, data: { attemptId: crypto.randomUUID(), cardId: card.id, cardVersion: 1, progressVersion: 0, direction: 'ru-pl', action: 'reveal' } })).status()).toBe(200);
-	sql(`UPDATE review_state SET due_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000 + 4000 WHERE card_id = '${card.id}'`);
+	// A miss waits 10 minutes, so this card is ready 4 seconds from now.
+	sql(`UPDATE card_progress SET last_incorrect_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000 + 4000 - 600000 WHERE card_id = '${card.id}'`);
 	await page.goto('/');
 	await expect(page.getByText('Na dziś wszystko gotowe.', { exact: true })).toBeVisible();
 	await expect(page.getByText(/Następna powtórka:/)).toBeVisible();
@@ -285,7 +241,7 @@ for (const scenario of [
 			Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
 			document.dispatchEvent(new Event('visibilitychange'));
 		});
-		await expect.poll(async () => ((await (await page.request.get('/api/study?direction=ru-pl')).json()) as StudyBatch).cards.length).toBe(1);
+		await expect.poll(async () => ((await (await page.request.get('/api/study')).json()) as StudyBatch).cards.length).toBe(1);
 		await expect(page.getByTestId('study-term')).toHaveCount(0);
 		await page.evaluate(() => {
 			Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
@@ -296,10 +252,10 @@ for (const scenario of [
 });
 
 for (const scenario of [
-	{ name: 'Check RU -> PL', direction: 'ru-pl', action: 'answer', label: 'Odpowiedź po polsku', answer: '  DOM  ', correction: 'Dom', grade: 'Dobrze', stage: 1 },
-	{ name: 'Reveal RU -> PL', direction: 'ru-pl', action: 'reveal', label: 'Odpowiedź po polsku', answer: '', correction: 'Dom', grade: 'Powtórz', stage: 0 },
-	{ name: 'Check PL -> RU', direction: 'pl-ru', action: 'answer', label: 'Odpowiedź po rosyjsku', answer: '  ДОМ  ', correction: 'Дом', grade: 'Dobrze', stage: 1 },
-	{ name: 'Reveal PL -> RU', direction: 'pl-ru', action: 'reveal', label: 'Odpowiedź po rosyjsku', answer: '', correction: 'Дом', grade: 'Powtórz', stage: 0 },
+	{ name: 'Check RU -> PL', direction: 'ru-pl', action: 'answer', label: 'Odpowiedź po polsku', answer: '  DOM  ', correction: 'Dom', grade: 'Dobrze', incorrect: 0 },
+	{ name: 'Reveal RU -> PL', direction: 'ru-pl', action: 'reveal', label: 'Odpowiedź po polsku', answer: '', correction: 'Dom', grade: 'Powtórz', incorrect: 1 },
+	{ name: 'Check PL -> RU', direction: 'pl-ru', action: 'answer', label: 'Odpowiedź po rosyjsku', answer: '  ДОМ  ', correction: 'Дом', grade: 'Dobrze', incorrect: 0 },
+	{ name: 'Reveal PL -> RU', direction: 'pl-ru', action: 'reveal', label: 'Odpowiedź po rosyjsku', answer: '', correction: 'Дом', grade: 'Powtórz', incorrect: 1 },
 ]) test(`retries stored ${scenario.name} with its frozen envelope after reload and shows its original examples`, async ({ page }, testInfo) => {
 	const [card] = await seed(page);
 	const received = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
@@ -331,7 +287,7 @@ for (const scenario of [
 	} finally { release.resolve(); }
 	await expect(page.getByRole('alert')).toContainText('nie został potwierdzony');
 	await expect(page.getByLabel(scenario.label)).toHaveValue(scenario.answer);
-	expect(((await (await page.request.get(`/api/study?direction=${scenario.direction}`)).json()) as StudyBatch).cards).toEqual([]);
+	expect(((await (await page.request.get('/api/study')).json()) as StudyBatch).cards).toEqual([]);
 	expect((await page.request.patch(`/api/cards/${card.id}`, { headers, data: { ...CARD_B, id: undefined, version: 1, examplePl: 'To inny dom.', exampleRu: 'Это другой дом.' } })).status()).toBe(200);
 	await page.unroute('**/api/reviews');
 	await page.reload();
@@ -345,7 +301,7 @@ for (const scenario of [
 	await expect(page.getByTestId('study-correction')).toHaveText(scenario.correction);
 	await expect(page.getByText('Это наш дом.', { exact: true })).toBeVisible();
 	await expect(page.getByText('To nasz dom.', { exact: true })).toBeVisible();
-	expect(stored).toMatchObject({ cardId: card.id, progress: { version: 1, stage: scenario.stage } });
+	expect(stored).toMatchObject({ cardId: card.id, progress: { version: 1, incorrect: scenario.incorrect } });
 	expect(await page.evaluate(key => sessionStorage.getItem(key), `study-draft:${USER_A.id}`)).toBeNull();
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 	await page.screenshot({ path: `.wrangler/playwright/study-feedback-${testInfo.project.name}-${page.viewportSize()!.width}-${scenario.direction}-${scenario.action}.png`, fullPage: true, animations: 'disabled', scale: 'css' });
@@ -433,7 +389,7 @@ test('retains an editable answer on provider 401 without expiring the app sessio
 	await expect(page.getByRole('alert')).toContainText('Model AI nie jest skonfigurowany. Poproś właściciela o sprawdzenie klucza API.');
 	await expect(page.getByLabel('Odpowiedź po polsku')).toHaveValue('ошибка подключения');
 	await expect(page.getByRole('button', { name: 'Wyloguj', exact: true })).toBeVisible();
-	expect(((await (await page.request.get('/api/study?direction=ru-pl')).json()) as StudyBatch).cards[0].progress).toBeNull();
+	expect(((await (await page.request.get('/api/study')).json()) as StudyBatch).cards[0].progress).toBeNull();
 	await expect(page.getByLabel('Odpowiedź po polsku')).toBeEnabled();
 	await page.getByLabel('Odpowiedź po polsku').fill('Dom');
 	await page.getByRole('button', { name: 'Sprawdź', exact: true }).click();
@@ -512,8 +468,8 @@ for (const scenario of [
 });
 
 for (const scenario of [
-	{ name: 'almost correct', answer: 'domu', button: 'Sprawdź', feedback: 'Prawie dobrze', stage: 0 },
-	{ name: 'reveal', answer: '', button: 'Pokaż odpowiedź', feedback: 'Powtórz', stage: 0 },
+	{ name: 'almost correct', answer: 'domu', button: 'Sprawdź', feedback: 'Prawie dobrze' },
+	{ name: 'reveal', answer: '', button: 'Pokaż odpowiedź', feedback: 'Powtórz' },
 ]) test(`announces ${scenario.name} feedback after a saved review`, async ({ page }) => {
 	await seed(page);
 	await page.goto('/');
@@ -521,7 +477,7 @@ for (const scenario of [
 	const saved = page.waitForResponse(response => response.url().endsWith('/api/reviews'));
 	await page.getByRole('button', { name: scenario.button, exact: true }).click();
 	expect((await saved).status()).toBe(200);
-	expect((await (await saved).json()).progress.stage).toBe(scenario.stage);
+	expect((await (await saved).json()).progress).toMatchObject({ correct: 0, incorrect: 1 });
 	await expect(page.getByRole('status').filter({ hasText: scenario.feedback })).toBeVisible();
 	await expect(page.getByTestId('study-correction')).toHaveText('Dom');
 });

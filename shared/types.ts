@@ -30,9 +30,9 @@ export interface Card extends CardContent {
 
 export interface CardPage { cards: Card[]; nextCursor: string | null }
 
-export interface Progress { stage: number; dueAt: number; version: number; lastReviewedAt: number }
+export interface Progress { correct: number; incorrect: number; lastCorrectAt: number | null; lastIncorrectAt: number | null; version: number }
 export interface StudyCard { card: Card; progress: Progress | null }
-export interface StudyBatch { cards: StudyCard[]; serverTime: number; nextDueAt: number | null }
+export interface StudyBatch { cards: StudyCard[]; dueCount: number; serverTime: number; nextDueAt: number | null }
 export interface GradeResult { grade: Grade; correction: string; explanation: string }
 export interface ReviewBase {
 	attemptId: string;

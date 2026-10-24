@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { Card, ReviewResult, StudyBatch } from '../shared/types';
 import { USER_A, USER_B, WORD_DRAFT } from '../test/fixtures';
-import { allCards } from './cards';
+import { allCards, sql } from './cards';
 
 async function signIn(page: Page, user: typeof USER_A) {
 	await page.setExtraHTTPHeaders({ 'CF-Connecting-IP': `workflow-${crypto.randomUUID()}` });
@@ -42,6 +42,10 @@ test('shares the server key for generation and grading while keeping learner pro
 		expect(await (await semantic).json()).toMatchObject({ source: 'ai', grade: 'again', progress: { version: 1 } });
 		await expect(other.getByRole('heading', { name: 'Powtórz', exact: true })).toBeVisible();
 		await other.getByRole('button', { name: 'RU -> PL', exact: true }).click();
+		await expect(other.getByText('Na dziś wszystko gotowe.', { exact: true })).toBeVisible();
+		// Both directions share the progress. The miss waits 10 minutes, so move it back to make the card ready.
+		sql(`UPDATE card_progress SET last_incorrect_at = last_incorrect_at - 600000 WHERE user_id = '${USER_B.id}'`);
+		await other.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
 		await expect(other.getByTestId('study-term')).toHaveText('Слово');
 		await expect(other.getByText(WORD_DRAFT.examplePl, { exact: true })).toHaveCount(0);
 		await other.getByLabel('Odpowiedź po polsku').fill('ошибка подключения');
@@ -79,23 +83,16 @@ test('shares the server key for generation and grading while keeping learner pro
 		await expect(page.getByRole('heading', { name: 'Dobrze', exact: true })).toBeVisible();
 		await expect(page.getByText(WORD_DRAFT.exampleRu, { exact: true })).toBeVisible();
 		await expect(page.getByText(WORD_DRAFT.examplePl, { exact: true })).toBeVisible();
-		const batchB: StudyBatch = await (await other.request.get('/api/study?direction=ru-pl')).json();
-		const reverseBatchA: StudyBatch = await (await page.request.get('/api/study?direction=pl-ru')).json();
-		expect(batchB.cards.find(item => item.card.id === cardId)?.progress).toBeNull();
-		expect(reverseBatchA.cards.find(item => item.card.id === cardId)?.progress).toBeNull();
-		await page.getByRole('button', { name: 'PL -> RU', exact: true }).click();
-		await expect(page.getByTestId('study-term')).toHaveText('Słowo');
-		await expect(page.getByText(WORD_DRAFT.exampleRu, { exact: true })).toHaveCount(0);
-		await page.getByRole('button', { name: 'Pokaż odpowiedź', exact: true }).click();
-		await expect(page.getByRole('heading', { name: 'Powtórz', exact: true })).toBeVisible();
-		await expect(page.getByText(WORD_DRAFT.exampleRu, { exact: true })).toBeVisible();
-		await expect(page.getByText(WORD_DRAFT.examplePl, { exact: true })).toBeVisible();
+		const batchA: StudyBatch = await (await page.request.get('/api/study')).json();
+		const batchB: StudyBatch = await (await other.request.get('/api/study')).json();
+		expect(batchA.cards.some(item => item.card.id === cardId)).toBe(false);
+		expect(batchB.cards.find(item => item.card.id === cardId)?.progress).toMatchObject({ correct: 0, incorrect: 1, version: 1 });
 		await page.getByRole('button', { name: 'Słówka', exact: true }).click();
 		await page.getByRole('button', { name: 'Słowo / Слово', exact: true }).click();
 		await page.getByRole('button', { name: 'Do archiwum', exact: true }).click();
 		await expect(page.getByRole('button', { name: 'Słowo / Слово', exact: true })).toHaveCount(0);
-		const afterArchiveA: StudyBatch = await (await page.request.get('/api/study?direction=ru-pl')).json();
-		const afterArchiveB: StudyBatch = await (await other.request.get('/api/study?direction=ru-pl')).json();
+		const afterArchiveA: StudyBatch = await (await page.request.get('/api/study')).json();
+		const afterArchiveB: StudyBatch = await (await other.request.get('/api/study')).json();
 		expect(afterArchiveA.cards.some(item => item.card.id === cardId)).toBe(false);
 		expect(afterArchiveB.cards.some(item => item.card.id === cardId)).toBe(false);
 		await other.getByRole('button', { name: 'Ponów', exact: true }).click();

@@ -24,7 +24,7 @@ export function Study({ user, onDirection, onBusy }: {
 	}, [study.state, current?.id]);
 
 	return <section className="page study" aria-labelledby="study-title">
-		<div className="page-heading"><h1 id="study-title">Nauka słówek</h1><p className="hint" data-testid="study-remaining">W kolejce: {study.remaining}</p></div>
+		<div className="page-heading"><h1 id="study-title">Nauka słówek</h1><p className="hint" data-testid="study-remaining">W kolejce: {study.dueCount}</p></div>
 		<div className="directions" role="group" aria-label="Kierunek tłumaczenia">
 			<button aria-label="RU -> PL" aria-pressed={polish} disabled={study.locked} onClick={() => void study.setDirection('ru-pl')}>Rosyjski <span aria-hidden="true">→</span> Polski</button>
 			<button aria-label="PL -> RU" aria-pressed={!polish} disabled={study.locked} onClick={() => void study.setDirection('pl-ru')}>Polski <span aria-hidden="true">→</span> Rosyjski</button>

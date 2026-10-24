@@ -16,7 +16,7 @@ test('rejects logout from an old A tab after the shared cookie changes to B', as
 	const id = crypto.randomUUID();
 	try {
 		await page.goto('/');
-		const firstStudy = page.waitForRequest(request => request.url().includes('/api/study?'));
+		const firstStudy = page.waitForRequest(request => request.url().endsWith('/api/study'));
 		await login(page, USER_A);
 		expect((await firstStudy).headers()['x-account-id']).toBe(USER_A.id);
 		expect((await page.request.patch('/api/me', { headers, data: { direction: 'ru-pl' } })).status()).toBe(200);

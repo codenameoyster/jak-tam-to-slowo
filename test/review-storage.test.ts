@@ -13,13 +13,14 @@ const input: ReviewInput = {
 	cardVersion: 1, progressVersion: 0, direction: 'ru-pl', action: 'answer', answer: 'Słowo',
 };
 const correct: GradeResult = { grade: 'correct', correction: 'Słowo', explanation: 'Dobrze.' };
+const almost: GradeResult = { grade: 'almost', correction: 'Słowo', explanation: 'Popraw literę.' };
 const again: GradeResult = { grade: 'again', correction: 'Słowo', explanation: 'Powtórz słowo.' };
 const firstResult: ReviewResult = {
 	...correct, attemptId: input.attemptId, cardId: CARD_A.id, direction: 'ru-pl', source: 'exact',
-	progress: { stage: 1, dueAt: now + 86_400_000, version: 1, lastReviewedAt: now },
+	progress: { correct: 1, incorrect: 0, lastCorrectAt: now, lastIncorrectAt: null, version: 1 },
 };
-// The review_state row that handleReview reads after firstResult is stored.
-const reviewed = { stage: 1, version: 1 };
+// The card_progress row that handleReview reads after firstResult is stored.
+const reviewed = firstResult.progress;
 
 beforeEach(async () => {
 	vi.spyOn(Date, 'now').mockReturnValue(now);
@@ -30,7 +31,7 @@ beforeEach(async () => {
 });
 
 async function state() {
-	return (await env.DB.prepare('SELECT * FROM review_state ORDER BY user_id, card_id, direction').all()).results;
+	return (await env.DB.prepare('SELECT * FROM card_progress ORDER BY user_id, card_id').all()).results;
 }
 
 async function reviews() {
@@ -57,29 +58,35 @@ it('stores a first review once and replays its full result across property order
 	};
 	expect(await commitReview(env, USER_A.id, reordered, undefined, again, 'ai', now + 2000)).toEqual(firstResult);
 	expect(await state()).toEqual([{
-		user_id: USER_A.id, card_id: CARD_A.id, direction: 'ru-pl', stage: 1,
-		due_at: now + 86_400_000, version: 1, last_reviewed_at: now,
+		user_id: USER_A.id, card_id: CARD_A.id, correct: 1, incorrect: 0,
+		last_correct_at: now, last_incorrect_at: null, version: 1,
 	}]);
 	expect(await reviews()).toHaveLength(1);
 });
 
-it('keeps other learners and directions unseen and permits the same attempt ID for another learner', async () => {
+it('shares progress between directions, keeps other learners unseen, and permits the same attempt ID for another learner', async () => {
 	await commitReview(env, USER_A.id, input, undefined, correct, 'exact', now);
-	const otherLearner = await getStudyBatch(env, USER_B.id, 'ru-pl', [], 10, now);
-	const otherDirection = await getStudyBatch(env, USER_A.id, 'pl-ru', [], 10, now);
-	expect(otherLearner.cards.every(item => item.progress === null)).toBe(true);
-	expect(otherDirection.cards.every(item => item.progress === null)).toBe(true);
+	expect((await getStudyBatch(env, USER_B.id, now)).cards.every(item => item.progress === null)).toBe(true);
 	expect(await commitReview(env, USER_B.id, input, undefined, correct, 'exact', now)).toEqual(firstResult);
-	expect(await reviews()).toHaveLength(2);
-	expect(await state()).toHaveLength(2);
+	const reverse: ReviewInput = { ...input, attemptId: crypto.randomUUID(), direction: 'pl-ru', progressVersion: 1, answer: 'Слово' };
+	expect((await commitReview(env, USER_A.id, reverse, reviewed, correct, 'exact', now + 1000)).progress)
+		.toEqual({ correct: 2, incorrect: 0, lastCorrectAt: now + 1000, lastIncorrectAt: null, version: 2 });
+	expect(await reviews()).toHaveLength(3);
+	expect(await state()).toMatchObject([{ user_id: USER_A.id, correct: 2, version: 2 }, { user_id: USER_B.id, correct: 1, version: 1 }]);
 });
 
-it('updates the stored interval for a second correct review', async () => {
-	await env.DB.prepare(`INSERT INTO review_state (user_id, card_id, direction, stage, due_at, version, last_reviewed_at)
-		VALUES (?, ?, 'ru-pl', 1, ?, 7, ?)`).bind(USER_A.id, CARD_A.id, now, now - 1000).run();
-	const result = await commitReview(env, USER_A.id, { ...input, progressVersion: 7 }, { stage: 1, version: 7 }, correct, 'ai', now);
-	expect(result.progress).toEqual({ stage: 2, dueAt: now + 259_200_000, version: 8, lastReviewedAt: now });
-	expect(await state()).toMatchObject([{ stage: 2, due_at: now + 259_200_000, version: 8, last_reviewed_at: now }]);
+it.each([
+	{ name: 'correct answer', grade: correct, expected: { correct: 3, incorrect: 1, lastCorrectAt: now, lastIncorrectAt: now - 2000 } },
+	{ name: 'almost correct answer', grade: almost, expected: { correct: 2, incorrect: 2, lastCorrectAt: now - 1000, lastIncorrectAt: now } },
+	{ name: 'wrong answer or reveal', grade: again, expected: { correct: 2, incorrect: 2, lastCorrectAt: now - 1000, lastIncorrectAt: now } },
+])('adds a $name to the stored counts', async ({ grade, expected }) => {
+	await env.DB.prepare(`INSERT INTO card_progress (user_id, card_id, correct, incorrect, last_correct_at, last_incorrect_at, version)
+		VALUES (?, ?, 2, 1, ?, ?, 7)`).bind(USER_A.id, CARD_A.id, now - 1000, now - 2000).run();
+	const current = { correct: 2, incorrect: 1, lastCorrectAt: now - 1000, lastIncorrectAt: now - 2000, version: 7 };
+	const result = await commitReview(env, USER_A.id, { ...input, progressVersion: 7 }, current, grade, 'ai', now);
+	expect(result.progress).toEqual({ ...expected, version: 8 });
+	expect(await state()).toEqual([{ user_id: USER_A.id, card_id: CARD_A.id, correct: expected.correct, incorrect: expected.incorrect,
+		last_correct_at: expected.lastCorrectAt, last_incorrect_at: expected.lastIncorrectAt, version: 8 }]);
 	expect(await reviews()).toHaveLength(1);
 });
 
@@ -119,13 +126,13 @@ it('replays the original progress after a later review, edit, and archive', asyn
 	await commitReview(env, USER_A.id, input, undefined, correct, 'exact', now);
 	const reveal: ReviewInput = { attemptId: crypto.randomUUID(), cardId: CARD_A.id, cardVersion: 1, progressVersion: 1, direction: 'ru-pl', action: 'reveal' };
 	const later = await commitReview(env, USER_A.id, reveal, reviewed, again, 'reveal', now + 1000);
-	expect(later).toEqual({ ...again, attemptId: reveal.attemptId, cardId: CARD_A.id, direction: 'ru-pl', source: 'reveal', progress: { stage: 0, dueAt: now + 61_000, version: 2, lastReviewedAt: now + 1000 } });
+	expect(later).toEqual({ ...again, attemptId: reveal.attemptId, cardId: CARD_A.id, direction: 'ru-pl', source: 'reveal', progress: { correct: 1, incorrect: 1, lastCorrectAt: now, lastIncorrectAt: now + 1000, version: 2 } });
 	await env.DB.prepare('UPDATE cards SET version = 2, pl = ? WHERE id = ?').bind('Wyraz', CARD_A.id).run();
 	expect(await commitReview(env, USER_A.id, input, undefined, again, 'ai', now + 2000)).toEqual(firstResult);
 	await env.DB.prepare('UPDATE cards SET version = 3, archived = 1 WHERE id = ?').bind(CARD_A.id).run();
 	expect(await commitReview(env, USER_A.id, input, undefined, again, 'ai', now + 3000)).toEqual(firstResult);
 	expect(await commitReview(env, USER_A.id, reveal, reviewed, again, 'reveal', now + 4000)).toEqual(later);
-	expect(await state()).toMatchObject([{ version: 2, stage: 0, due_at: now + 61_000 }]);
+	expect(await state()).toMatchObject([{ version: 2, correct: 1, incorrect: 1 }]);
 	expect(await reviews()).toHaveLength(2);
 });
 
@@ -148,8 +155,8 @@ it('rejects a candidate calculated from a different progress version even if tha
 	await Promise.race([held.ready, Promise.allSettled([pending])]);
 	let before;
 	try {
-		await env.DB.prepare('UPDATE review_state SET stage = 2, version = 2, due_at = ? WHERE user_id = ? AND card_id = ?')
-			.bind(now + 259_200_000, USER_A.id, CARD_A.id).run();
+		await env.DB.prepare('UPDATE card_progress SET correct = 2, version = 2, last_correct_at = ? WHERE user_id = ? AND card_id = ?')
+			.bind(now + 1000, USER_A.id, CARD_A.id).run();
 		before = { state: await state(), reviews: await reviews() };
 	} finally { held.release(); }
 	await expect(pending).rejects.toMatchObject({ status: 409 });
@@ -185,4 +192,24 @@ it('replays a review stored before migration 0007 with the renamed explanation f
 	const response = await request('/api/reviews', { method: 'POST', cookie: await login(USER_A.id), body: input });
 	expect(response.status).toBe(200);
 	expect(await response.json()).toEqual({ ...firstResult, explanation: 'Верно.' });
+});
+
+it('counts the saved reviews of both directions when migration 0008 runs', async () => {
+	const saved = [
+		{ userId: USER_A.id, cardId: CARD_A.id, direction: 'ru-pl', grade: 'correct', at: now - 3000 },
+		{ userId: USER_A.id, cardId: CARD_A.id, direction: 'pl-ru', grade: 'almost', at: now - 2000 },
+		{ userId: USER_A.id, cardId: CARD_A.id, direction: 'ru-pl', grade: 'again', at: now - 1000 },
+		{ userId: USER_A.id, cardId: CARD_A.id, direction: 'pl-ru', grade: 'correct', at: now },
+		{ userId: USER_B.id, cardId: CARD_A.id, direction: 'ru-pl', grade: 'again', at: now - 500 },
+	];
+	await env.DB.batch(saved.map(({ userId, cardId, direction, grade, at }) => env.DB.prepare('INSERT INTO reviews (user_id, attempt_id, input_json, result_json) VALUES (?, ?, ?, ?)')
+		.bind(userId, crypto.randomUUID(), JSON.stringify({ cardId, cardVersion: 1, progressVersion: 0, direction, action: 'reveal' }),
+			JSON.stringify({ grade, correction: 'Słowo', explanation: 'Powtórz słowo.', cardId, direction, source: 'reveal', progress: { stage: 0, dueAt: at, version: 1, lastReviewedAt: at } }))));
+	await env.DB.prepare('DROP TABLE card_progress').run();
+	const migration = env.TEST_MIGRATIONS.find(migration => migration.name === '0008_card_progress.sql')!;
+	await env.DB.batch(migration.queries.map(query => env.DB.prepare(query)));
+	expect(await state()).toEqual([
+		{ user_id: USER_A.id, card_id: CARD_A.id, correct: 2, incorrect: 2, last_correct_at: now, last_incorrect_at: now - 1000, version: 4 },
+		{ user_id: USER_B.id, card_id: CARD_A.id, correct: 0, incorrect: 1, last_correct_at: null, last_incorrect_at: now - 500, version: 1 },
+	]);
 });

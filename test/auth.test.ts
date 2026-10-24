@@ -123,7 +123,7 @@ it.each([
 	const reviewed = await request('/api/reviews', { method: 'POST', cookie, body: input });
 	expect(reviewed.status).toBe(200);
 	const result = await reviewed.json();
-	expect(result).toMatchObject({ grade: 'correct', source: 'exact', progress: { stage: 1, version: 1, dueAt: now + 86_400_000, lastReviewedAt: now } });
+	expect(result).toMatchObject({ grade: 'correct', source: 'exact', progress: { correct: 1, incorrect: 0, lastCorrectAt: now, lastIncorrectAt: null, version: 1 } });
 
 	env.ACCOUNTS = testAccountSecret.replace(user.username, username).replace(user.displayName, displayName);
 	const response = await request('/api/session', { method: 'POST', body: { username, password: user.password } });
@@ -139,8 +139,8 @@ it.each([
 	const retry = await request('/api/reviews', { method: 'POST', cookie: renamedCookie, body: input });
 	expect(retry.status).toBe(200);
 	expect(await retry.json()).toEqual(result);
-	expect((await env.DB.prepare('SELECT user_id, card_id, direction, stage, version, due_at FROM review_state').all()).results).toEqual([
-		{ user_id: user.id, card_id: CARD_A.id, direction: 'pl-ru', stage: 1, version: 1, due_at: now + 86_400_000 },
+	expect((await env.DB.prepare('SELECT user_id, card_id, correct, version FROM card_progress').all()).results).toEqual([
+		{ user_id: user.id, card_id: CARD_A.id, correct: 1, version: 1 },
 	]);
 	expect((await env.DB.prepare('SELECT user_id, attempt_id FROM reviews').all()).results).toEqual([{ user_id: user.id, attempt_id: input.attemptId }]);
 	expect(await env.DB.prepare('SELECT count(*) AS n FROM users').first('n')).toBe(1);

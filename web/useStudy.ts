@@ -13,6 +13,7 @@ interface Recovery {
 }
 interface Session extends Recovery {
 	queue: StudyCard[];
+	dueCount: number;
 	state: State;
 	feedback: ReviewResult | null;
 	nextDueAt: number | null;
@@ -26,7 +27,7 @@ function initial(user: User): Session {
 	try { recovery = JSON.parse(sessionStorage.getItem(`study-draft:${user.id}`) ?? 'null'); } catch { recovery = null; }
 	return {
 		direction: user.direction, cardId: null, answer: '', pending: null, reviewedCard: null, retainedAnswer: '', ...recovery,
-		queue: [], state: recovery?.pending ? 'error' : 'loading', feedback: null, nextDueAt: null,
+		queue: [], dueCount: 0, state: recovery?.pending ? 'error' : 'loading', feedback: null, nextDueAt: null,
 		error: recovery?.pending ? 'Zapis odpowiedzi nie został potwierdzony. Ponów żądanie.' : '',
 		savedDirection: user.direction, savingDirection: false,
 	};
@@ -64,32 +65,25 @@ export function useStudy(user: User) {
 
 	async function load() {
 		const before = live.current;
-		if (refill.current || before.queue.length >= 10 || before.pending || before.savingDirection) return;
+		if (refill.current || before.pending || before.savingDirection) return;
 		const version = generation.current, flight = Symbol();
 		refill.current = flight;
-		const excluded = before.queue.map(item => item.card.id);
-		const params = new URLSearchParams({ direction: before.direction, limit: String(10 - excluded.length) });
-		if (excluded.length) params.set('exclude', excluded.join(','));
 		if (!before.queue.length && before.state !== 'feedback') update({ state: 'loading' });
 		try {
-			const batch = await api<StudyBatch>(`/study?${params}`);
+			const batch = await api<StudyBatch>('/study');
 			if (version !== generation.current) return;
 			clockOffset.current = Date.now() - batch.serverTime;
 			const current = live.current;
-			const ids = new Set([...excluded, ...current.queue.map(item => item.card.id)]);
-			let queue = [...current.queue];
-			for (const item of batch.cards) {
-				if (!ids.has(item.card.id) && queue.length < 10) queue.push(item);
-				ids.add(item.card.id);
-			}
+			// The card on screen stays first. After feedback, the reviewed card leaves the queue.
+			const head = current.state === 'feedback' ? undefined : current.queue[0];
+			let queue = head ? [head, ...batch.cards.filter(item => item.card.id !== head.card.id)] : batch.cards;
 			let { answer, cardId, retainedAnswer } = current;
 			if (!current.queue.length && answer && !current.pending) {
 				const recovered = queue.find(item => item.card.id === cardId);
 				if (recovered) queue = [recovered, ...queue.filter(item => item !== recovered)];
 				else { retainedAnswer = answer; answer = ''; cardId = null; }
 			}
-			const future = [batch.nextDueAt, current.nextDueAt].filter((time): time is number => time !== null && time > batch.serverTime);
-			update({ queue, answer, cardId, retainedAnswer, nextDueAt: future.length ? Math.min(...future) : null, error: current.pending ? current.error : '',
+			update({ queue, dueCount: batch.dueCount, answer, cardId, retainedAnswer, nextDueAt: batch.nextDueAt, error: current.pending ? current.error : '',
 				state: current.feedback ? 'feedback' : current.pending ? current.state : queue.length ? 'answering' : 'empty' });
 			if (!current.pending) retryAction.current = null;
 			persist();
@@ -113,7 +107,7 @@ export function useStudy(user: User) {
 			if (document.visibilityState === 'visible' && (current.state === 'answering' || current.state === 'empty')) void load();
 		}
 		function schedule() {
-			if (session.nextDueAt === null || session.queue.length >= 10 || !['answering', 'empty'].includes(session.state) || document.visibilityState !== 'visible') return;
+			if (session.nextDueAt === null || !['answering', 'empty'].includes(session.state) || document.visibilityState !== 'visible') return;
 			const delay = session.nextDueAt + clockOffset.current - Date.now();
 			timer = setTimeout(delay > 2_147_483_647 ? schedule : refresh, Math.min(2_147_483_647, Math.max(0, delay)));
 		}
@@ -125,7 +119,7 @@ export function useStudy(user: User) {
 		schedule();
 		document.addEventListener('visibilitychange', visibility);
 		return () => { clearTimeout(timer); document.removeEventListener('visibilitychange', visibility); };
-	}, [session.direction, session.nextDueAt, session.queue.length, session.state]);
+	}, [session.nextDueAt, session.state]);
 
 	function setAnswer(answer: string) {
 		const current = live.current;
@@ -138,19 +132,15 @@ export function useStudy(user: User) {
 		const current = live.current;
 		if (direction === current.direction || current.pending || current.savingDirection) return;
 		if ((current.answer || current.retainedAnswer) && !window.confirm('Zmienić kierunek i usunąć niezapisaną odpowiedź?')) return;
-		const version = ++generation.current;
-		refill.current = null;
+		const version = generation.current;
 		update({ savingDirection: true, error: '' });
 		try {
-			// The old card stays until the new cards arrive, so the screen changes once.
-			const [saved, batch] = await Promise.all([
-				api<User>('/me', { method: 'PATCH', body: JSON.stringify({ direction }) }),
-				api<StudyBatch>(`/study?${new URLSearchParams({ direction, limit: '10' })}`),
-			]);
+			const saved = await api<User>('/me', { method: 'PATCH', body: JSON.stringify({ direction }) });
 			if (version !== generation.current) return;
-			clockOffset.current = Date.now() - batch.serverTime;
-			update({ direction: saved.direction, savedDirection: saved.direction, queue: batch.cards, state: batch.cards.length ? 'answering' : 'empty', feedback: null, reviewedCard: null,
-				answer: '', cardId: null, retainedAnswer: '', nextDueAt: batch.nextDueAt, savingDirection: false });
+			// Both directions share the progress, so the same queue continues in the new direction.
+			const queue = live.current.queue.filter(item => item.card.id !== live.current.feedback?.cardId);
+			update({ direction: saved.direction, savedDirection: saved.direction, queue, state: queue.length ? 'answering' : 'empty', feedback: null, reviewedCard: null,
+				answer: '', cardId: null, retainedAnswer: '', savingDirection: false });
 			retryAction.current = null;
 			persist();
 		} catch (error) {
@@ -183,10 +173,13 @@ export function useStudy(user: User) {
 		try {
 			const feedback = await api<ReviewResult>('/reviews', { method: 'POST', body: pending });
 			if (version !== generation.current) return;
-			update({ feedback, state: 'feedback', pending: null, answer: '', cardId: null, retainedAnswer: '', error: '',
-				nextDueAt: Math.min(live.current.nextDueAt ?? Infinity, feedback.progress.dueAt) });
+			update({ feedback, state: 'feedback', pending: null, answer: '', cardId: null, retainedAnswer: '', error: '' });
 			retryAction.current = null;
 			persist();
+			// The answer changes the order, so the queue is built again while the feedback shows.
+			generation.current++;
+			refill.current = null;
+			void load();
 		} catch (error) {
 			if (version !== generation.current) return;
 			if (error instanceof ApiError && (error.code === 'version_conflict' || error.code === 'review_conflict')) {
@@ -209,14 +202,13 @@ export function useStudy(user: User) {
 		const current = live.current;
 		if (current.state !== 'feedback') return;
 		const queue = current.queue.filter(item => item.card.id !== current.feedback?.cardId);
-		update({ queue, feedback: null, reviewedCard: null, state: queue.length ? 'answering' : 'empty', error: '' });
-		if (queue.length <= 3) void load();
+		update({ queue, feedback: null, reviewedCard: null, state: queue.length ? 'answering' : 'empty' });
 	}
 
 	return {
 		current: session.queue[0] ?? null,
 		reviewedCard: session.reviewedCard,
-		remaining: session.queue.length - (session.feedback && session.queue[0]?.card.id === session.feedback.cardId ? 1 : 0),
+		dueCount: session.dueCount,
 		state: session.state, answer: session.answer, feedback: session.feedback, nextDueAt: session.nextDueAt, error: session.error,
 		direction: session.direction, savedDirection: session.savedDirection, retainedAnswer: session.retainedAnswer,
 		busy: session.state === 'checking' || session.savingDirection, locked: !!session.pending || session.savingDirection,

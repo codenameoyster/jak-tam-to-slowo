@@ -22,7 +22,7 @@ afterEach(() => vi.useRealTimers());
 const review = (body: unknown = input) => request('/api/reviews', { method: 'POST', cookie, body });
 async function tables() {
 	return {
-		state: (await env.DB.prepare('SELECT * FROM review_state ORDER BY user_id, card_id, direction').all()).results,
+		state: (await env.DB.prepare('SELECT * FROM card_progress ORDER BY user_id, card_id').all()).results,
 		reviews: (await env.DB.prepare('SELECT * FROM reviews ORDER BY user_id, attempt_id').all()).results,
 	};
 }
@@ -32,11 +32,11 @@ it('replays a saved attempt after its response is lost with one interval update'
 	const saved = (await tables()).reviews;
 	expect(saved).toHaveLength(1);
 	const savedResult = JSON.parse(String(saved[0].result_json));
-	expect(savedResult).toMatchObject({ ...correct, source: 'ai', progress: { version: 1, stage: 1, dueAt: now + 86_400_000, lastReviewedAt: now } });
+	expect(savedResult).toMatchObject({ ...correct, source: 'ai', progress: { correct: 1, incorrect: 0, lastCorrectAt: now, lastIncorrectAt: null, version: 1 } });
 	const retry = await review({ answer: 'wyraz', action: 'answer', direction: 'ru-pl', progressVersion: 0, cardVersion: 1, cardId: CARD_A.id, attemptId: input.attemptId });
 	expect(retry.status).toBe(200);
 	expect(await retry.json()).toEqual(savedResult);
-	expect(await tables()).toMatchObject({ reviews: saved, state: [{ user_id: USER_A.id, version: 1, stage: 1, due_at: now + 86_400_000 }] });
+	expect(await tables()).toMatchObject({ reviews: saved, state: [{ user_id: USER_A.id, version: 1, correct: 1, incorrect: 0 }] });
 	expect(provider.calls).toHaveLength(1);
 });
 
@@ -68,7 +68,7 @@ it.each([
 	expect(retry.status).toBe(200);
 	expect(await retry.json()).toEqual(original);
 	expect(await tables()).toEqual(before);
-	expect(before.state).toMatchObject([{ version: 2, stage: 0, due_at: now + 60_000 }]);
+	expect(before.state).toMatchObject([{ version: 2, correct: 1, incorrect: 1 }]);
 	expect(provider.calls).toHaveLength(1);
 });
 
@@ -89,7 +89,7 @@ it.each([
 	provider.messages = () => message(correct);
 	const retry = await review(semantic);
 	expect(retry.status).toBe(200);
-	expect(await retry.json()).toMatchObject({ grade: 'correct', source: 'ai', progress: { version: 2, stage: 2, dueAt: now + 259_200_000 } });
+	expect(await retry.json()).toMatchObject({ grade: 'correct', source: 'ai', progress: { version: 2, correct: 2, incorrect: 0 } });
 	expect((await tables()).reviews).toHaveLength(2);
 });
 
@@ -127,16 +127,16 @@ it.each([
 });
 
 it.each([
-	{ name: 'exact answer', body: { ...input, answer: ' Słowo ' }, grade: 'correct', correction: 'Słowo', explanation: 'Dobrze.', source: 'exact', stage: 1, delay: 86_400_000 },
-	{ name: 'empty answer', body: { ...input, answer: '' }, grade: 'again', correction: 'Słowo', explanation: 'Brak odpowiedzi. Powtórz słowo.', source: 'exact', stage: 0, delay: 60_000 },
-	{ name: 'reveal', body: { ...input, action: 'reveal', answer: undefined }, grade: 'again', correction: 'Słowo', explanation: 'Powtórz słowo.', source: 'reveal', stage: 0, delay: 60_000 },
-	{ name: 'Russian reveal', body: { ...input, action: 'reveal', answer: undefined, direction: 'pl-ru' }, grade: 'again', correction: 'Слово', explanation: 'Powtórz słowo.', source: 'reveal', stage: 0, delay: 60_000 },
-])('saves the $name without the AI key and provider access', async ({ body, grade, correction, explanation, source, stage, delay }) => {
+	{ name: 'exact answer', body: { ...input, answer: ' Słowo ' }, grade: 'correct', correction: 'Słowo', explanation: 'Dobrze.', source: 'exact', correct: 1, incorrect: 0 },
+	{ name: 'empty answer', body: { ...input, answer: '' }, grade: 'again', correction: 'Słowo', explanation: 'Brak odpowiedzi. Powtórz słowo.', source: 'exact', correct: 0, incorrect: 1 },
+	{ name: 'reveal', body: { ...input, action: 'reveal', answer: undefined }, grade: 'again', correction: 'Słowo', explanation: 'Powtórz słowo.', source: 'reveal', correct: 0, incorrect: 1 },
+	{ name: 'Russian reveal', body: { ...input, action: 'reveal', answer: undefined, direction: 'pl-ru' }, grade: 'again', correction: 'Слово', explanation: 'Powtórz słowo.', source: 'reveal', correct: 0, incorrect: 1 },
+])('saves the $name without the AI key and provider access', async ({ body, grade, correction, explanation, source, correct, incorrect }) => {
 	Reflect.deleteProperty(env, 'ANTHROPIC_API_KEY');
 	const count = provider.calls.length;
 	const response = await review(body);
 	expect(response.status).toBe(200);
-	expect(await response.json()).toMatchObject({ grade, correction, explanation, source, progress: { stage, version: 1, dueAt: now + delay } });
+	expect(await response.json()).toMatchObject({ grade, correction, explanation, source, progress: { correct, incorrect, version: 1 } });
 	expect((await tables()).reviews).toHaveLength(1);
 	expect(provider.calls).toHaveLength(count);
 });

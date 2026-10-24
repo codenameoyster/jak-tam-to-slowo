@@ -1,44 +1,39 @@
-import type { Direction, StudyBatch, User } from '../shared/types';
+import type { StudyBatch, User } from '../shared/types';
 import type { Env } from './index';
 import { type CardRow, columns, fromRow } from './cards';
-import { HttpError, methods, uuidPattern } from './http';
+import { methods } from './http';
 
-export async function getStudyBatch(env: Env, userId: string, direction: Direction, exclude: string[], limit: number, now: number): Promise<StudyBatch> {
-	if (exclude.length > 10 || exclude.some(id => !uuidPattern.test(id))) {
-		throw new HttpError(400, 'invalid_input', 'Podaj najwyżej dziesięć identyfikatorów fiszek.');
-	}
-	const excluded = JSON.stringify(exclude);
+// The time a card is ready again: 10 minutes after a miss. After a correct answer, the wait depends on the score
+// (correct answers minus 2 for each miss, from 0 to 6): 4 hours, then 1, 3, 7, 14, 30 and 60 days.
+const withProgress = `WITH progress AS (SELECT card_id, correct, incorrect, last_correct_at, last_incorrect_at, version,
+	CASE WHEN last_incorrect_at >= coalesce(last_correct_at, 0) THEN last_incorrect_at + 600000
+	ELSE last_correct_at + 3600000 * CASE max(0, min(6, correct - 2 * incorrect))
+		WHEN 0 THEN 4 WHEN 1 THEN 24 WHEN 2 THEN 72 WHEN 3 THEN 168 WHEN 4 THEN 336 WHEN 5 THEN 720 ELSE 1440 END END AS due_at
+	FROM card_progress WHERE user_id = ?1)`;
+
+export async function getStudyBatch(env: Env, userId: string, now: number): Promise<StudyBatch> {
 	const [queue, future] = await env.DB.batch([
-		env.DB.prepare(`SELECT ${columns},
-			CASE WHEN s.version IS NULL THEN NULL ELSE json_object('stage', s.stage, 'dueAt', s.due_at,
-				'version', s.version, 'lastReviewedAt', s.last_reviewed_at) END AS progress
-			FROM cards LEFT JOIN review_state s ON s.card_id = cards.id AND s.user_id = ?1 AND s.direction = ?2
-			WHERE cards.archived = 0 AND cards.id NOT IN (SELECT value FROM json_each(?4)) AND (s.version IS NULL OR s.due_at <= ?3)
-			ORDER BY CASE WHEN s.version IS NULL THEN 2 WHEN s.stage = 0 THEN 0 ELSE 1 END,
-				coalesce(s.due_at, cards.created_at), cards.id LIMIT ?5`)
-			.bind(userId, direction, now, excluded, Math.max(1, Math.min(10, limit))),
-		env.DB.prepare(`SELECT min(s.due_at) AS nextDueAt FROM review_state s JOIN cards c ON c.id = s.card_id
-			WHERE s.user_id = ?1 AND s.direction = ?2 AND s.due_at > ?3
-			AND c.archived = 0 AND c.id NOT IN (SELECT value FROM json_each(?4))`)
-			.bind(userId, direction, now, excluded),
+		// Cards with more misses per correct answer come first. A new card counts as one miss per correct answer.
+		env.DB.prepare(`${withProgress} SELECT ${columns},
+			CASE WHEN p.version IS NULL THEN NULL ELSE json_object('correct', p.correct, 'incorrect', p.incorrect,
+				'lastCorrectAt', p.last_correct_at, 'lastIncorrectAt', p.last_incorrect_at, 'version', p.version) END AS progress
+			FROM cards LEFT JOIN progress p ON p.card_id = cards.id
+			WHERE cards.archived = 0 AND coalesce(p.due_at, 0) <= ?2
+			ORDER BY (coalesce(p.incorrect, 0) + 1.0) / (coalesce(p.correct, 0) + 1) DESC, coalesce(p.due_at, cards.created_at), cards.id LIMIT 10`)
+			.bind(userId, now),
+		env.DB.prepare(`${withProgress} SELECT count(*) FILTER (WHERE coalesce(p.due_at, 0) <= ?2) AS dueCount,
+			min(p.due_at) FILTER (WHERE p.due_at > ?2) AS nextDueAt
+			FROM cards LEFT JOIN progress p ON p.card_id = cards.id WHERE cards.archived = 0`).bind(userId, now),
 	]);
 	const cards = (queue.results as (CardRow & { progress: string | null })[]).map(({ progress, ...row }) => ({
 		card: fromRow(row),
 		progress: progress === null ? null : JSON.parse(progress),
 	}));
-	const { nextDueAt } = future.results[0] as { nextDueAt: number | null };
-	return { cards, serverTime: now, nextDueAt };
+	const { dueCount, nextDueAt } = future.results[0] as { dueCount: number; nextDueAt: number | null };
+	return { cards, dueCount, serverTime: now, nextDueAt };
 }
 
 export async function handleStudy(request: Request, env: Env, user: User): Promise<Response> {
 	methods(request, ['GET']);
-	const params = new URL(request.url).searchParams;
-	const direction = params.get('direction') ?? user.direction;
-	const limitText = params.get('limit');
-	const limit = limitText === null ? 10 : Number(limitText);
-	if ((direction !== 'ru-pl' && direction !== 'pl-ru') || limitText?.trim() === '' || !Number.isSafeInteger(limit)) {
-		throw new HttpError(400, 'invalid_input', 'Sprawdź kierunek i liczbę fiszek.');
-	}
-	const exclude = params.get('exclude');
-	return Response.json(await getStudyBatch(env, user.id, direction, exclude ? exclude.split(',') : [], limit, Date.now()));
+	return Response.json(await getStudyBatch(env, user.id, Date.now()));
 }

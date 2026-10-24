@@ -1,14 +1,14 @@
 import { env } from 'cloudflare:workers';
 import { beforeEach, expect, it, vi } from 'vitest';
-import type { Direction, StudyBatch } from '../shared/types';
+import type { StudyBatch } from '../shared/types';
 import { getStudyBatch } from '../src/study';
 import { login, request } from './client';
 import { CARD_A, CARD_B, USER_A, USER_B } from './fixtures';
 
 const now = Date.parse('2026-10-21T10:00:00.000Z');
+const minute = 60_000, hour = 60 * minute, day = 24 * hour;
 const c = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const d = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
-const e = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 let cookie: string;
 
 beforeEach(async () => {
@@ -16,112 +16,100 @@ beforeEach(async () => {
 	cookie = await login(USER_A.id);
 	await login(USER_B.id);
 	const cards = [
-		{ name: 'retry', card: CARD_A, createdAt: now - 100 },
-		{ name: 'overdue', card: CARD_B, createdAt: now - 300 },
-		{ name: 'unseen', card: { ...CARD_A, id: c }, createdAt: now - 200 },
-		{ name: 'future', card: { ...CARD_A, id: d }, createdAt: now - 400 },
-		{ name: 'archived', card: { ...CARD_A, id: e }, createdAt: now - 500 },
+		{ name: 'first', card: CARD_A, createdAt: now - 100 },
+		{ name: 'second', card: CARD_B, createdAt: now - 300 },
+		{ name: 'third', card: { ...CARD_A, id: c }, createdAt: now - 200 },
+		{ name: 'fourth', card: { ...CARD_A, id: d }, createdAt: now - 400 },
 	];
 	for (const { createdAt, card } of cards) {
 		vi.spyOn(Date, 'now').mockReturnValue(createdAt);
 		expect((await request('/api/cards', { method: 'POST', cookie, body: card })).status).toBe(201);
 	}
 	vi.spyOn(Date, 'now').mockReturnValue(now);
-	await env.DB.batch([
-		env.DB.prepare(`INSERT INTO review_state (user_id, card_id, direction, stage, due_at, version, last_reviewed_at)
-			VALUES (?1, ?2, 'ru-pl', 0, ?3, 2, ?4), (?1, ?5, 'ru-pl', 3, ?6, 4, ?4),
-			(?1, ?7, 'ru-pl', 1, ?8, 1, ?4), (?1, ?9, 'ru-pl', 0, ?10, 1, ?4)`)
-			.bind(USER_A.id, CARD_A.id, now, now - 1000, CARD_B.id, now - 10_000, d, now + 60_000, e, now + 1000),
-		env.DB.prepare('UPDATE cards SET archived = 1 WHERE id = ?').bind(e),
-	]);
 });
 
-it('orders due retries, overdue reviews, then unseen cards without creating progress', async () => {
-	const batch = await getStudyBatch(env, USER_A.id, 'ru-pl', [], 10, now);
-	expect(batch.cards.map(item => item.card.id)).toEqual([CARD_A.id, CARD_B.id, c]);
-	expect(batch).toMatchObject({ serverTime: now, nextDueAt: now + 60_000 });
+async function answered(cardId: string, correct: number, incorrect: number, lastCorrectAt: number | null, lastIncorrectAt: number | null) {
+	await env.DB.prepare(`INSERT INTO card_progress (user_id, card_id, correct, incorrect, last_correct_at, last_incorrect_at, version)
+		VALUES (?, ?, ?, ?, ?, ?, 3)`).bind(USER_A.id, cardId, correct, incorrect, lastCorrectAt, lastIncorrectAt).run();
+}
+
+const ids = (batch: StudyBatch) => batch.cards.map(item => item.card.id);
+
+it.each([
+	{ name: 'miss', correct: 0, incorrect: 1, lastCorrectAt: null, lastIncorrectAt: now - 1000, readyAt: now - 1000 + 10 * minute },
+	{ name: 'miss after correct answers', correct: 5, incorrect: 1, lastCorrectAt: now - day, lastIncorrectAt: now - 1000, readyAt: now - 1000 + 10 * minute },
+	{ name: 'correct answer after many misses', correct: 1, incorrect: 10, lastCorrectAt: now - 1000, lastIncorrectAt: now - hour, readyAt: now - 1000 + 4 * hour },
+	{ name: 'correct answer at score 0', correct: 2, incorrect: 1, lastCorrectAt: now - 1000, lastIncorrectAt: now - hour, readyAt: now - 1000 + 4 * hour },
+	{ name: 'correct answer at score 1', correct: 1, incorrect: 0, lastCorrectAt: now - 1000, lastIncorrectAt: null, readyAt: now - 1000 + day },
+	{ name: 'correct answer at score 2', correct: 2, incorrect: 0, lastCorrectAt: now - 1000, lastIncorrectAt: null, readyAt: now - 1000 + 3 * day },
+	{ name: 'correct answer at score 3', correct: 3, incorrect: 0, lastCorrectAt: now - 1000, lastIncorrectAt: null, readyAt: now - 1000 + 7 * day },
+	{ name: 'correct answer at score 4 after a miss', correct: 6, incorrect: 1, lastCorrectAt: now - 1000, lastIncorrectAt: now - day, readyAt: now - 1000 + 14 * day },
+	{ name: 'correct answer at score 5', correct: 5, incorrect: 0, lastCorrectAt: now - 1000, lastIncorrectAt: null, readyAt: now - 1000 + 30 * day },
+	{ name: 'correct answer at score 6', correct: 6, incorrect: 0, lastCorrectAt: now - 1000, lastIncorrectAt: null, readyAt: now - 1000 + 60 * day },
+	{ name: 'correct answer above score 6', correct: 9, incorrect: 0, lastCorrectAt: now - 1000, lastIncorrectAt: null, readyAt: now - 1000 + 60 * day },
+])('holds a card back after a $name', async ({ correct, incorrect, lastCorrectAt, lastIncorrectAt, readyAt }) => {
+	await answered(CARD_A.id, correct, incorrect, lastCorrectAt, lastIncorrectAt);
+	const waiting = await getStudyBatch(env, USER_A.id, readyAt - 1);
+	expect(ids(waiting)).toEqual([d, CARD_B.id, c]);
+	expect(waiting).toMatchObject({ dueCount: 3, nextDueAt: readyAt });
+	const ready = await getStudyBatch(env, USER_A.id, readyAt);
+	expect(ids(ready)).toContain(CARD_A.id);
+	expect(ready).toMatchObject({ dueCount: 4, nextDueAt: null });
+});
+
+it('orders ready cards by misses per correct answer without creating progress', async () => {
+	await answered(CARD_A.id, 1, 3, now - 2 * day, now - hour);
+	await answered(CARD_B.id, 2, 0, now - 4 * day, null);
+	const batch = await getStudyBatch(env, USER_A.id, now);
+	expect(ids(batch)).toEqual([CARD_A.id, d, c, CARD_B.id]);
+	expect(batch).toEqual({ cards: expect.any(Array), dueCount: 4, serverTime: now, nextDueAt: null });
 	expect(batch.cards[0]).toEqual({
 		card: { ...CARD_A, version: 1, archived: false, createdBy: USER_A.id, createdAt: now - 100, updatedAt: now - 100 },
-		progress: { stage: 0, dueAt: now, version: 2, lastReviewedAt: now - 1000 },
+		progress: { correct: 1, incorrect: 3, lastCorrectAt: now - 2 * day, lastIncorrectAt: now - hour, version: 3 },
 	});
-	expect(batch.cards[2].progress).toBeNull();
-	expect(await env.DB.prepare('SELECT count(*) AS n FROM review_state').first('n')).toBe(4);
+	expect(batch.cards[1].progress).toBeNull();
+	expect(await env.DB.prepare('SELECT count(*) AS n FROM card_progress').first('n')).toBe(2);
 	expect(await env.DB.prepare('SELECT count(*) AS n FROM reviews').first('n')).toBe(0);
 });
 
-it.each([
-	{ name: 'retry due times', stage: 0, secondDue: now - 1, expected: [CARD_B.id, CARD_A.id, c] },
-	{ name: 'retry ID ties', stage: 0, secondDue: now, expected: [CARD_A.id, CARD_B.id, c] },
-	{ name: 'review due times', stage: 2, secondDue: now - 1, expected: [CARD_B.id, CARD_A.id, c] },
-	{ name: 'review ID ties', stage: 2, secondDue: now, expected: [CARD_A.id, CARD_B.id, c] },
-])('orders $name', async ({ stage, secondDue, expected }) => {
-	await env.DB.prepare('UPDATE review_state SET stage = ?1, due_at = CASE card_id WHEN ?2 THEN ?3 ELSE ?4 END WHERE card_id IN (?2, ?5)')
-		.bind(stage, CARD_A.id, now, secondDue, CARD_B.id).run();
-	expect((await getStudyBatch(env, USER_A.id, 'ru-pl', [], 10, now)).cards.map(item => item.card.id)).toEqual(expected);
+it('breaks equal weights by ready time and then by ID', async () => {
+	await env.DB.prepare('UPDATE cards SET created_at = ? WHERE id IN (?, ?)').bind(now - 400, c, CARD_B.id).run();
+	await answered(CARD_A.id, 1, 1, now - day, now - hour);
+	expect(ids(await getStudyBatch(env, USER_A.id, now))).toEqual([CARD_A.id, CARD_B.id, c, d]);
 });
 
-it('orders unseen creation times and breaks equal times by ID', async () => {
-	await env.DB.prepare('UPDATE cards SET created_at = ? WHERE id IN (?, ?)').bind(now - 300, CARD_A.id, CARD_B.id).run();
-	const batch = await getStudyBatch(env, USER_B.id, 'ru-pl', [], 10, now);
-	expect(batch.cards.map(item => item.card.id)).toEqual([d, CARD_A.id, CARD_B.id, c]);
-	expect(batch.cards.every(item => item.progress === null)).toBe(true);
-	expect(batch.nextDueAt).toBeNull();
+it('counts every ready card beyond the batch of 10', async () => {
+	for (let index = 0; index < 9; index++) {
+		expect((await request('/api/cards', { method: 'POST', cookie, body: { ...CARD_A, id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}` } })).status).toBe(201);
+	}
+	await answered(CARD_A.id, 1, 0, now, null);
+	const batch = await getStudyBatch(env, USER_A.id, now);
+	expect(batch.cards).toHaveLength(10);
+	expect(ids(batch)).not.toContain(CARD_A.id);
+	expect(batch.dueCount).toBe(12);
 });
 
-it.each([
-	{ name: 'other learner', userId: USER_B.id, direction: 'ru-pl' },
-	{ name: 'other direction', userId: USER_A.id, direction: 'pl-ru' },
-] satisfies { name: string; userId: string; direction: Direction }[])('keeps the $name unseen', async ({ userId, direction }) => {
-	const batch = await getStudyBatch(env, userId, direction, [], 10, now);
-	expect(batch.cards.map(item => item.card.id)).toEqual([d, CARD_B.id, c, CARD_A.id]);
-	expect(batch.cards.every(item => item.progress === null)).toBe(true);
-	expect(batch.nextDueAt).toBeNull();
+it('leaves archived cards out of the queue, the count, and the next ready time', async () => {
+	await answered(d, 0, 1, null, now);
+	await env.DB.prepare('UPDATE cards SET archived = 1 WHERE id IN (?, ?)').bind(c, d).run();
+	expect(await getStudyBatch(env, USER_A.id, now)).toMatchObject({ dueCount: 2, nextDueAt: null });
+	expect(ids(await getStudyBatch(env, USER_A.id, now))).toEqual([CARD_B.id, CARD_A.id]);
 });
 
-it('excludes buffered cards from both the queue and the next future due time', async () => {
-	const batch = await getStudyBatch(env, USER_A.id, 'ru-pl', [CARD_A.id, d], 10, now);
-	expect(batch.cards.map(item => item.card.id)).toEqual([CARD_B.id, c]);
-	expect(batch.nextDueAt).toBeNull();
+it('keeps the progress of one learner away from the other learner', async () => {
+	await answered(CARD_A.id, 1, 0, now, null);
+	const other = await getStudyBatch(env, USER_B.id, now);
+	expect(ids(other)).toEqual([d, CARD_B.id, c, CARD_A.id]);
+	expect(other.cards.every(item => item.progress === null)).toBe(true);
+	expect(other).toMatchObject({ dueCount: 4, nextDueAt: null });
 });
 
-it('returns the next future time when the queue is empty', async () => {
-	const batch = await getStudyBatch(env, USER_A.id, 'ru-pl', [CARD_A.id, CARD_B.id, c], 10, now);
-	expect(batch).toEqual({ cards: [], serverTime: now, nextDueAt: now + 60_000 });
-});
-
-it.each([
-	{ name: 'zero', limit: 0, length: 1 },
-	{ name: 'negative', limit: -4, length: 1 },
-	{ name: 'requested size', limit: 2, length: 2 },
-	{ name: 'maximum size', limit: 50, length: 10 },
-])('clamps a $name limit', async ({ limit, length }) => {
-	const cards = Array.from({ length: 9 }, (_, index) => ({ name: `extra ${index}`, id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}` }));
-	for (const card of cards) expect((await request('/api/cards', { method: 'POST', cookie, body: { ...CARD_A, id: card.id } })).status).toBe(201);
-	expect((await getStudyBatch(env, USER_A.id, 'ru-pl', [], limit, now)).cards).toHaveLength(length);
-});
-
-it('serves the authenticated direction, buffer exclusions, and limit', async () => {
-	const response = await request(`/api/study?direction=ru-pl&exclude=${CARD_A.id},${d}&limit=1`, { cookie });
+it('serves the batch of the session learner without caching', async () => {
+	await answered(CARD_A.id, 1, 0, now, null);
+	const response = await request('/api/study', { cookie });
 	expect(response.status).toBe(200);
-	const batch = await response.json<StudyBatch>();
-	expect(batch.cards.map(item => item.card.id)).toEqual([CARD_B.id]);
-	expect(batch).toMatchObject({ serverTime: now, nextDueAt: null });
 	expect(response.headers.get('Cache-Control')).toBe('private, no-store');
-	await request('/api/me', { method: 'PATCH', cookie, body: { direction: 'pl-ru' } });
-	const savedDirection = await (await request('/api/study', { cookie })).json<StudyBatch>();
-	expect(savedDirection.cards.every(item => item.progress === null)).toBe(true);
-	expect(savedDirection.cards.map(item => item.card.id)).toEqual([d, CARD_B.id, c, CARD_A.id]);
-});
-
-it.each([
-	{ name: 'unknown direction', query: 'direction=en-pl' },
-	{ name: 'non-numeric limit', query: 'limit=no' },
-	{ name: 'fractional limit', query: 'limit=1.5' },
-	{ name: 'empty limit', query: 'limit=' },
-	{ name: 'invalid excluded ID', query: 'exclude=not-an-id' },
-	{ name: 'oversized buffer', query: `exclude=${Array(11).fill(CARD_A.id).join(',')}` },
-])('rejects $name', async ({ query }) => {
-	expect((await request(`/api/study?${query}`, { cookie })).status).toBe(400);
+	expect(await response.json()).toEqual(await getStudyBatch(env, USER_A.id, now));
 });
 
 it('requires a session and accepts only GET', async () => {

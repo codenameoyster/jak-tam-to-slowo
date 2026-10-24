@@ -1,12 +1,10 @@
-import type { GradeResult, ReviewInput, ReviewResult, User } from '../shared/types';
+import type { GradeResult, Progress, ReviewInput, ReviewResult, User } from '../shared/types';
 import type { Env } from './index';
 import { type CardRow, columns, fromRow } from './cards';
 import { gradeAnswer } from './grade';
 import { HttpError, methods, object, readJson, uuidPattern } from './http';
-import { advance } from './schedule';
 
 interface ReviewRow { input_json: string; result_json: string }
-interface StateRow { stage: number; version: number }
 
 function identity(input: ReviewInput): string {
 	return JSON.stringify({
@@ -21,21 +19,27 @@ function replay(row: ReviewRow | undefined, input: ReviewInput): ReviewResult | 
 	return JSON.parse(row.result_json);
 }
 
-export async function commitReview(env: Env, userId: string, input: ReviewInput, current: StateRow | undefined, grade: GradeResult, source: ReviewResult['source'], now: number): Promise<ReviewResult> {
-	const progress = { ...advance(current?.stage ?? 0, grade.grade, now), version: input.progressVersion + 1, lastReviewedAt: now };
+export async function commitReview(env: Env, userId: string, input: ReviewInput, current: Progress | undefined, grade: GradeResult, source: ReviewResult['source'], now: number): Promise<ReviewResult> {
+	// "Prawie dobrze" counts as a miss.
+	const correct = grade.grade === 'correct';
+	const progress: Progress = {
+		correct: (current?.correct ?? 0) + Number(correct), incorrect: (current?.incorrect ?? 0) + Number(!correct),
+		lastCorrectAt: correct ? now : current?.lastCorrectAt ?? null, lastIncorrectAt: correct ? current?.lastIncorrectAt ?? null : now,
+		version: input.progressVersion + 1,
+	};
 	const result: ReviewResult = { ...grade, attemptId: input.attemptId, cardId: input.cardId, direction: input.direction, source, progress };
 	const [, , saved] = await env.DB.batch<ReviewRow>([
-		env.DB.prepare(`INSERT INTO review_state (user_id, card_id, direction, stage, due_at, version, last_reviewed_at)
-			SELECT ?1, ?2, ?3, ?6, ?7, ?5 + 1, ?8
-			WHERE ?10 = ?5
-			AND EXISTS (SELECT 1 FROM cards WHERE id = ?2 AND version = ?4 AND archived = 0)
+		env.DB.prepare(`INSERT INTO card_progress (user_id, card_id, correct, incorrect, last_correct_at, last_incorrect_at, version)
+			SELECT ?1, ?2, ?5, ?6, ?7, ?8, ?4 + 1
+			WHERE ?10 = ?4
+			AND EXISTS (SELECT 1 FROM cards WHERE id = ?2 AND version = ?3 AND archived = 0)
 			AND NOT EXISTS (SELECT 1 FROM reviews WHERE user_id = ?1 AND attempt_id = ?9)
-			AND (?5 = 0 OR EXISTS (SELECT 1 FROM review_state WHERE user_id = ?1 AND card_id = ?2 AND direction = ?3))
-			ON CONFLICT (user_id, card_id, direction) DO UPDATE SET stage = excluded.stage, due_at = excluded.due_at,
-				version = excluded.version, last_reviewed_at = excluded.last_reviewed_at
-			WHERE review_state.version = ?5`)
-			.bind(userId, input.cardId, input.direction, input.cardVersion, input.progressVersion,
-				progress.stage, progress.dueAt, now, input.attemptId, current?.version ?? 0),
+			AND (?4 = 0 OR EXISTS (SELECT 1 FROM card_progress WHERE user_id = ?1 AND card_id = ?2))
+			ON CONFLICT (user_id, card_id) DO UPDATE SET correct = excluded.correct, incorrect = excluded.incorrect,
+				last_correct_at = excluded.last_correct_at, last_incorrect_at = excluded.last_incorrect_at, version = excluded.version
+			WHERE card_progress.version = ?4`)
+			.bind(userId, input.cardId, input.cardVersion, input.progressVersion,
+				progress.correct, progress.incorrect, progress.lastCorrectAt, progress.lastIncorrectAt, input.attemptId, current?.version ?? 0),
 		// changes() reads the preceding write count: https://www.sqlite.org/lang_corefunc.html#changes
 		env.DB.prepare(`INSERT INTO reviews (user_id, attempt_id, input_json, result_json)
 			SELECT ?1, ?2, ?3, ?4 WHERE changes() = 1`).bind(userId, input.attemptId, identity(input), JSON.stringify(result)),
@@ -62,7 +66,8 @@ export async function handleReview(request: Request, env: Env, user: User): Prom
 	const [review, row, state] = await env.DB.batch([
 		env.DB.prepare('SELECT input_json, result_json FROM reviews WHERE user_id = ? AND attempt_id = ?').bind(user.id, attemptId),
 		env.DB.prepare(`SELECT ${columns} FROM cards WHERE id = ?`).bind(cardId),
-		env.DB.prepare('SELECT stage, version FROM review_state WHERE user_id = ? AND card_id = ? AND direction = ?').bind(user.id, cardId, direction),
+		env.DB.prepare(`SELECT correct, incorrect, last_correct_at AS lastCorrectAt, last_incorrect_at AS lastIncorrectAt, version
+			FROM card_progress WHERE user_id = ? AND card_id = ?`).bind(user.id, cardId),
 	]);
 	const saved = replay(review.results[0] as ReviewRow | undefined, input);
 	if (saved) return Response.json(saved);
@@ -78,5 +83,5 @@ export async function handleReview(request: Request, env: Env, user: User): Prom
 		if (!(error instanceof HttpError)) throw error;
 		return Response.json({ error: error.message, code: error.code }, { status: error.status, headers: { 'X-Review-Recovery': 'editable' } });
 	}
-	return Response.json(await commitReview(env, user.id, input, state.results[0] as StateRow | undefined, graded.result, graded.source, Date.now()));
+	return Response.json(await commitReview(env, user.id, input, state.results[0] as Progress | undefined, graded.result, graded.source, Date.now()));
 }
