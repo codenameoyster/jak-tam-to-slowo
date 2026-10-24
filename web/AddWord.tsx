@@ -21,7 +21,8 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy }: { userId: str
 	const [error, setError] = useState('');
 	const [storageError, setStorageError] = useState('');
 	const [saved, setSaved] = useState<Card | null>(null);
-	const [matches, setMatches] = useState<Card[]>([]);
+	// null until the search for the current text ends.
+	const [matches, setMatches] = useState<Card[] | null>(null);
 	const [searchError, setSearchError] = useState('');
 	const [dictationId, setDictationId] = useState(0);
 	const input = useRef<HTMLInputElement>(null);
@@ -38,13 +39,17 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy }: { userId: str
 
 	useEffect(() => {
 		let cancelled = false;
-		setMatches([]);
 		setSearchError('');
-		if (!query) return;
+		// The previous matches stay until the next search ends, so the list does not blink on each key.
+		if (!query) { setMatches(null); return; }
 		const timer = setTimeout(() => {
 			void api<CardPage>(`/cards?${new URLSearchParams({ q: query })}`).then(page => {
 				if (!cancelled) setMatches(page.cards);
-			}).catch(() => { if (!cancelled) setSearchError('Nie udało się wyszukać podobnych słówek. Sprawdź kolekcję w sekcji „Słówka”.'); });
+			}).catch(() => {
+				if (cancelled) return;
+				setMatches(null);
+				setSearchError('Nie udało się wyszukać podobnych słówek. Sprawdź kolekcję w sekcji „Słówka”.');
+			});
 		}, 250);
 		return () => { cancelled = true; clearTimeout(timer); };
 	}, [query]);
@@ -110,9 +115,9 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy }: { userId: str
 			<button className="primary" disabled={locked || !query}>Przygotuj fiszkę</button>
 		</form>
 		{searchError && <p className="hint" role="status">{searchError}</p>}
-		{!!matches.length && <aside aria-label="Podobne słówka">
+		{query && !searchError && <aside className="similar" aria-label="Podobne słówka">
 			<h2>Podobne słówka</h2>
-			<ul className="words-list">{matches.map(card => <li key={card.id}>
+			<ul className="words-list">{matches?.length === 0 ? <li className="hint">Brak podobnych słówek.</li> : matches?.map(card => <li key={card.id}>
 				<a className="word" href="#words" aria-disabled={busy} onClick={event => { event.preventDefault(); if (!busy) onOpen(card); }}><span lang="pl">{card.pl}</span> / <span lang="ru">{card.ru}</span></a>
 				<p className="hint" lang="ru">{card.meaningRu}</p>
 			</li>)}</ul>

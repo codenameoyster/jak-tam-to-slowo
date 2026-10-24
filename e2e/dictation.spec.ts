@@ -555,6 +555,38 @@ test.describe('phone interface', () => {
 		await expect(nav).toBeVisible();
 	});
 
+	test('keeps the page height while the visual viewport pans over the keyboard', async ({ page }) => {
+		await page.goto('/');
+		await page.getByRole('button', { name: 'Dodaj', exact: true }).tap();
+		await page.getByLabel('Słowo lub wyrażenie').tap();
+		const pan = (offset: number) => page.evaluate(offset => new Promise<string>(resolve => {
+			Object.defineProperties(window.visualViewport!, { height: { configurable: true, value: innerHeight - 300 }, offsetTop: { configurable: true, value: offset } });
+			window.visualViewport!.dispatchEvent(new Event(offset ? 'scroll' : 'resize'));
+			requestAnimationFrame(() => requestAnimationFrame(() => resolve(getComputedStyle(document.querySelector('.app')!).paddingBottom)));
+		}), offset);
+		const padding = await pan(0);
+		expect(await pan(120)).toBe(padding);
+		expect(await pan(240)).toBe(padding);
+	});
+
+	for (const scenario of [
+		{ name: 'a viewport resize', event: 'resize' },
+		{ name: 'a viewport scroll', event: 'scroll' },
+	]) test(`keeps the user scroll position after ${scenario.name} while the keyboard stays open`, async ({ page }) => {
+		await page.goto('/');
+		await page.getByRole('button', { name: 'Dodaj', exact: true }).tap();
+		await page.getByLabel('Słowo lub wyrażenie').tap();
+		const keyboard = (height: number, event: string) => page.evaluate(({ height, event }) => new Promise<number>(resolve => {
+			Object.defineProperties(window.visualViewport!, { height: { configurable: true, value: height }, offsetTop: { configurable: true, value: 0 } });
+			window.visualViewport!.dispatchEvent(new Event(event));
+			requestAnimationFrame(() => requestAnimationFrame(() => resolve(scrollY)));
+		}), { height, event });
+		expect(await keyboard(300, 'resize')).toBeGreaterThan(0);
+		await page.evaluate(() => window.scrollTo(0, 0));
+		// A small viewport change while the user scrolls must not scroll back to the field.
+		expect(await keyboard(300.5, scenario.event)).toBe(0);
+	});
+
 	test('shows recording cancellation and a readable microphone error', async ({ page }, testInfo) => {
 		await page.setViewportSize({ width: 390, height: 844 });
 		await media(page);

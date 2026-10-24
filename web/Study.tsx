@@ -29,7 +29,6 @@ export function Study({ user, onDirection, onBusy }: {
 			<button aria-label="RU -> PL" aria-pressed={polish} disabled={study.locked} onClick={() => void study.setDirection('ru-pl')}>Rosyjski <span aria-hidden="true">→</span> Polski</button>
 			<button aria-label="PL -> RU" aria-pressed={!polish} disabled={study.locked} onClick={() => void study.setDirection('pl-ru')}>Polski <span aria-hidden="true">→</span> Rosyjski</button>
 		</div>
-		{study.busy && study.state !== 'checking' && <p role="status">Zapisywanie kierunku…</p>}
 		{study.state === 'loading' && <p role="status">Wczytywanie fiszek…</p>}
 		{current && <div className="study-prompt">
 			<h2 className="study-term" data-testid="study-term" lang={polish ? 'ru' : 'pl'}>{polish ? current.ru : current.pl}</h2>
@@ -60,6 +59,7 @@ export function Study({ user, onDirection, onBusy }: {
 			<p>{study.nextDueAt ? 'Na dziś wszystko gotowe.' : 'Dodaj słówko, aby zacząć.'}</p>
 			{study.nextDueAt && <p className="hint">Następna powtórka: <time dateTime={new Date(study.nextDueAt).toISOString()}>{new Date(study.nextDueAt).toLocaleString('pl-PL')}</time></p>}
 		</div>}
+		{study.busy && study.state !== 'checking' && <p className="delayed" role="status">Zapisywanie kierunku…</p>}
 		{study.retainedAnswer && <div className="study-recovery">
 			<p className="hint">Fiszka lub wynik się zmieniły. Skopiuj zapisaną odpowiedź, jeśli jest potrzebna do nowej próby.</p>
 			<label htmlFor="retained-answer">Zapisana odpowiedź</label>

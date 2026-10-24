@@ -49,21 +49,21 @@ export function App() {
 		const viewport = window.visualViewport;
 		if (!viewport) return;
 		const root = document.documentElement;
-		let frame = 0, focused = false, shown = 0;
-		// Scroll only on focus or a keyboard height change. iOS also scrolls to the focused field, and a scroll on each viewport event makes the page jump.
+		let frame = 0, focused = false;
+		// Scroll once after a field gets focus and the keyboard is open. A later scroll would move the page under the user's finger.
 		function update(event: Event) {
 			focused ||= event.type === 'focusin';
 			cancelAnimationFrame(frame);
 			frame = requestAnimationFrame(() => {
 				const height = innerHeight - viewport!.height;
 				const keyboard = viewport!.scale === 1 && height > 120;
-				const correct = keyboard && (focused || height !== shown);
-				focused = false;
-				shown = keyboard ? height : 0;
 				root.dataset.keyboard = String(keyboard);
-				root.style.setProperty('--keyboard-inset', `${keyboard ? Math.max(0, height - viewport!.offsetTop) : 0}px`);
+				// The inset is the keyboard height. iOS pans the visual viewport while the user types, and an inset that follows the pan resizes the page on each key.
+				root.style.setProperty('--keyboard-inset', `${keyboard ? height : 0}px`);
+				if (!keyboard || !focused) return;
+				focused = false;
 				const field = document.activeElement;
-				if (!correct || !(field instanceof HTMLElement) || !field.matches('input, textarea, select')) return;
+				if (!(field instanceof HTMLElement) || !field.matches('input, textarea, select')) return;
 				const rect = field.getBoundingClientRect();
 				const top = viewport!.offsetTop + 12;
 				const bottom = Math.max(top + rect.height, viewport!.offsetTop + viewport!.height - 180);
@@ -72,12 +72,10 @@ export function App() {
 			});
 		}
 		viewport.addEventListener('resize', update);
-		viewport.addEventListener('scroll', update);
 		document.addEventListener('focusin', update);
 		return () => {
 			cancelAnimationFrame(frame);
 			viewport.removeEventListener('resize', update);
-			viewport.removeEventListener('scroll', update);
 			document.removeEventListener('focusin', update);
 			delete root.dataset.keyboard;
 			root.style.removeProperty('--keyboard-inset');

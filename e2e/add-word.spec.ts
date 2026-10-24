@@ -40,6 +40,49 @@ for (const scenario of [
 	await expect(page.getByLabel('Po rosyjsku', { exact: true })).toHaveValue('Слово');
 });
 
+test('keeps similar words visible while the next search runs', async ({ page, baseURL }) => {
+	const seedId = crypto.randomUUID();
+	expect((await page.request.post('/api/cards', { headers: { Origin: baseURL! }, data: { id: seedId, ...WORD_DRAFT } })).status()).toBe(201);
+	createdIds.push(seedId);
+	await page.getByRole('button', { name: 'Dodaj', exact: true }).click();
+	const input = page.getByLabel('Słowo lub wyrażenie'), similar = page.getByRole('complementary', { name: 'Podobne słówka' });
+	await input.fill('słow');
+	await expect(similar.getByRole('link', { name: 'Słowo / Слово', exact: true })).toBeVisible();
+	const received = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+	await page.route('**/api/cards?*', async route => { received.resolve(); await release.promise; await route.continue(); });
+	const searched = page.waitForResponse(response => response.url().includes('/api/cards?'));
+	await input.press('o');
+	await received.promise;
+	try {
+		await expect(similar.getByRole('link', { name: 'Słowo / Слово', exact: true })).toBeVisible();
+	} finally { release.resolve(); }
+	await searched;
+	await page.unroute('**/api/cards?*');
+	await input.fill('');
+	await expect(similar).toHaveCount(0);
+});
+
+test('keeps the similar words area height while the number of matches changes', async ({ page, baseURL }) => {
+	const token = `zq${crypto.randomUUID().slice(0, 6)}`;
+	for (const word of ['jeden', 'dwa', 'trzy', 'cztery', 'pięć']) {
+		const id = crypto.randomUUID();
+		expect((await page.request.post('/api/cards', { headers: { Origin: baseURL! }, data: { ...WORD_DRAFT, id, pl: `${token} ${word}` } })).status()).toBe(201);
+		createdIds.push(id);
+	}
+	await page.getByRole('button', { name: 'Dodaj', exact: true }).click();
+	const input = page.getByLabel('Słowo lub wyrażenie'), similar = page.getByRole('complementary', { name: 'Podobne słówka' });
+	const height = async () => (await similar.boundingBox())!.height;
+	await input.fill(token);
+	await expect(similar.getByRole('link')).toHaveCount(5);
+	const full = await height();
+	await input.fill(`${token} j`);
+	await expect(similar.getByRole('link')).toHaveCount(1);
+	expect(await height()).toBe(full);
+	await input.fill(`${token} x`);
+	await expect(similar.getByText('Brak podobnych słówek.', { exact: true })).toBeVisible();
+	expect(await height()).toBe(full);
+});
+
 test('restores the selected meaning and resends it from Przygotuj fiszkę', async ({ page }) => {
 	const draft = { id: crypto.randomUUID(), text: 'лук', meaningRu: 'Овощ', choices: [], card: { ...ONION_DRAFT, examplePl: 'To moja cebula.' } };
 	await page.evaluate(({ key, draft }) => sessionStorage.setItem(key, JSON.stringify(draft)), { key: `card-draft:${USER_A.id}`, draft });

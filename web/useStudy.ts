@@ -142,17 +142,21 @@ export function useStudy(user: User) {
 		refill.current = null;
 		update({ savingDirection: true, error: '' });
 		try {
-			const saved = await api<User>('/me', { method: 'PATCH', body: JSON.stringify({ direction }) });
+			// The old card stays until the new cards arrive, so the screen changes once.
+			const [saved, batch] = await Promise.all([
+				api<User>('/me', { method: 'PATCH', body: JSON.stringify({ direction }) }),
+				api<StudyBatch>(`/study?${new URLSearchParams({ direction, limit: '10' })}`),
+			]);
 			if (version !== generation.current) return;
-			update({ direction: saved.direction, savedDirection: saved.direction, queue: [], state: 'loading', feedback: null, reviewedCard: null,
-				answer: '', cardId: null, retainedAnswer: '', nextDueAt: null, savingDirection: false });
+			clockOffset.current = Date.now() - batch.serverTime;
+			update({ direction: saved.direction, savedDirection: saved.direction, queue: batch.cards, state: batch.cards.length ? 'answering' : 'empty', feedback: null, reviewedCard: null,
+				answer: '', cardId: null, retainedAnswer: '', nextDueAt: batch.nextDueAt, savingDirection: false });
 			retryAction.current = null;
 			persist();
-			void load();
 		} catch (error) {
 			if (version !== generation.current) return;
 			retryAction.current = () => void setDirection(direction);
-			update({ error: failed(error, 'Nie udało się zapisać kierunku. Odpowiedź została w formularzu.'), savingDirection: false });
+			update({ error: failed(error, 'Nie udało się zmienić kierunku. Odpowiedź została w formularzu.'), savingDirection: false });
 		}
 	}
 

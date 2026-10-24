@@ -134,6 +134,39 @@ for (const scenario of [
 	await expect(page.getByText('Это наш дом.', { exact: true })).toBeVisible();
 });
 
+test('changes the direction in one step and keeps the card in place', async ({ page }) => {
+	await seed(page);
+	await page.goto('/');
+	const term = page.getByTestId('study-term');
+	await expect(term).toHaveText('Дом');
+	const top = (await term.boundingBox())!.y;
+	const received = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+	await page.route('**/api/study?*', async route => { received.resolve(); await release.promise; await route.continue(); });
+	await page.getByLabel('PL -> RU', { exact: true }).click();
+	await received.promise;
+	try {
+		await expect(page.getByText('Zapisywanie kierunku…', { exact: true })).toBeAttached();
+		await expect(page.getByRole('button', { name: 'Nauka', exact: true })).toBeDisabled();
+		// The busy status and the dimmed controls appear only after 0.4 s.
+		expect(await page.evaluate(() => {
+			const status = [...document.querySelectorAll('[role="status"]')].find(node => node.textContent === 'Zapisywanie kierunku…')!;
+			const tab = document.querySelector('.tabs button')!;
+			const animations = [...status.getAnimations(), ...tab.getAnimations()];
+			animations.forEach(animation => animation.pause());
+			return [0, 1000].map(time => {
+				animations.forEach(animation => { animation.currentTime = time; });
+				return [getComputedStyle(status).opacity, getComputedStyle(tab).opacity];
+			});
+		})).toEqual([['0', '1'], ['1', '0.45']]);
+		await expect(page.getByText('Zapisywanie kierunku…', { exact: true })).toBeVisible();
+		await expect(term).toHaveText('Дом');
+		expect((await term.boundingBox())!.y).toBe(top);
+	} finally { release.resolve(); }
+	await expect(term).toHaveText('Dom');
+	expect((await term.boundingBox())!.y).toBe(top);
+	await expect(page.getByLabel('PL -> RU', { exact: true })).toHaveAttribute('aria-pressed', 'true');
+});
+
 for (const scenario of [
 	{ name: 'direction changes', change: 'direction' },
 	{ name: 'account changes', change: 'account' },
