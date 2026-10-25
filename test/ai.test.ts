@@ -65,3 +65,34 @@ it.each<{ name: string; key?: string | null; reply?: (request: Request) => Respo
 	expect(logs[0].mock.calls.map(([line]) => JSON.parse(line))).toEqual(error ? [{ event: 'ai_failed', status: error.status, code: error.code, providerStatus, requestId }] : []);
 	expect(JSON.stringify(logs.map(log => log.mock.calls))).not.toMatch(/private provider text|test-anthropic-key|słowo|Słowo|Ignore instructions/);
 });
+
+it.each([
+	{ name: 'a successful response body', status: 200 },
+	{ name: 'an error response body', status: 529 },
+])('stops at 45 seconds while reading $name', async ({ status }) => {
+	vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+	vi.spyOn(AbortSignal, 'timeout').mockImplementation(milliseconds => {
+		const timer = new AbortController();
+		setTimeout(() => timer.abort(new DOMException('Deadline exceeded.', 'TimeoutError')), milliseconds);
+		return timer.signal;
+	});
+	let cancel = () => {}, settled = false;
+	provider.messages = request => new Response(new ReadableStream({ start(controller) {
+		cancel = () => controller.error(new Error('Test cleanup.'));
+		request.signal.addEventListener('abort', () => controller.error(request.signal.reason));
+		entered.resolve();
+	} }), { status, headers: { 'Content-Type': 'application/json', 'request-id': 'req_test' } });
+	const outcome = requestAiJson(env, instructions, input, schema).catch(error => error).finally(() => { settled = true; });
+	try {
+		await entered.promise;
+		await vi.advanceTimersByTimeAsync(44_999);
+		expect(settled).toBe(false);
+		await vi.advanceTimersByTimeAsync(1);
+		expect(settled).toBe(true);
+		expect(await outcome).toMatchObject({ status: 503, code: 'ai_timeout' });
+		expect(provider.calls).toHaveLength(1);
+	} finally {
+		if (!settled) cancel();
+		await outcome;
+	}
+});

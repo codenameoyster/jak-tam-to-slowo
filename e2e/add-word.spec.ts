@@ -311,6 +311,37 @@ test('keeps the preview editable and sends no create when recovery storage fails
 	expect(await allCards(page.request)).toEqual([]);
 });
 
+test('recovers a create conflict with editable fields and a new ID across reload', async ({ page, baseURL }) => {
+	await page.getByRole('button', { name: 'Dodaj', exact: true }).click();
+	await page.getByLabel('Słowo lub wyrażenie').fill('słowo');
+	await page.getByRole('button', { name: 'Przygotuj fiszkę', exact: true }).click();
+	await expect(page.getByLabel('Po polsku', { exact: true })).toHaveValue('Słowo');
+	const id: string = await page.evaluate(key => JSON.parse(sessionStorage.getItem(key)!).id, `card-draft:${USER_A.id}`);
+	createdIds.push(id);
+	expect((await page.request.post('/api/cards', { headers: { Origin: baseURL! }, data: { id, ...WORD_DRAFT } })).status()).toBe(201);
+	await page.getByLabel('Przykład po polsku').fill('To mój drugi przykład.');
+	const rejected = page.waitForResponse(response => response.url().endsWith('/api/cards') && response.request().method() === 'POST');
+	await page.getByRole('button', { name: 'Zapisz', exact: true }).click();
+	expect((await rejected).status()).toBe(409);
+	await expect(page.getByLabel('Przykład po polsku')).toBeEnabled();
+	await expect(page.getByLabel('Przykład po polsku')).toHaveValue('To mój drugi przykład.');
+	await expect(page.getByRole('button', { name: 'Usuń szkic', exact: true })).toBeEnabled();
+	await page.reload();
+	await page.getByRole('button', { name: 'Dodaj', exact: true }).click();
+	await expect(page.getByLabel('Przykład po polsku')).toBeEnabled();
+	await expect(page.getByLabel('Przykład po polsku')).toHaveValue('To mój drugi przykład.');
+	const saved = page.waitForResponse(response => response.url().endsWith('/api/cards') && response.request().method() === 'POST');
+	await page.getByRole('button', { name: 'Zapisz', exact: true }).click();
+	const response = await saved, newId: string = response.request().postDataJSON().id;
+	createdIds.push(newId);
+	expect(response.status()).toBe(201);
+	expect(newId).not.toBe(id);
+	await expect(page.getByRole('status')).toContainText('Fiszka zapisana.');
+	const cards = await allCards(page.request);
+	expect(cards.find(card => card.id === id)).toMatchObject({ examplePl: 'Nie znam tego słowa.', version: 1 });
+	expect(cards.find(card => card.id === newId)).toMatchObject({ examplePl: 'To mój drugi przykład.', version: 1 });
+});
+
 test('keeps an edited preview outside source dictation across reload and save', async ({ page }, testInfo) => {
 	await page.getByRole('button', { name: 'Dodaj', exact: true }).click();
 	const source = page.getByLabel('Słowo lub wyrażenie'), mic = page.getByRole('button', { name: 'Dyktuj', exact: true });

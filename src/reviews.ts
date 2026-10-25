@@ -74,6 +74,8 @@ export async function handleReview(request: Request, env: Env, user: User): Prom
 	if (!row.results[0]) throw new HttpError(404, 'not_found', 'Nie znaleziono fiszki.');
 	const card = fromRow(row.results[0] as CardRow);
 	if (card.archived || card.version !== cardVersion) throw new HttpError(409, 'version_conflict', 'Fiszka została już zmieniona. Otwórz następną fiszkę.');
+	const current = state.results[0] as Progress | undefined;
+	if ((current?.version ?? 0) !== progressVersion) throw new HttpError(409, 'version_conflict', 'Fiszka lub wynik zostały już zmienione. Otwórz następną fiszkę.');
 	let graded: { result: GradeResult; source: ReviewResult['source'] };
 	try {
 		graded = input.action === 'answer' ? await gradeAnswer(env, card, direction, input.answer) : {
@@ -83,5 +85,5 @@ export async function handleReview(request: Request, env: Env, user: User): Prom
 		if (!(error instanceof HttpError)) throw error;
 		return Response.json({ error: error.message, code: error.code }, { status: error.status, headers: { 'X-Review-Recovery': 'editable' } });
 	}
-	return Response.json(await commitReview(env, user.id, input, state.results[0] as Progress | undefined, graded.result, graded.source, Date.now()));
+	return Response.json(await commitReview(env, user.id, input, current, graded.result, graded.source, Date.now()));
 }

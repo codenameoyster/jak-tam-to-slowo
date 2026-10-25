@@ -103,7 +103,8 @@ export function AddWord({ userId, onOpen, busy, onBusy: setBusy }: { userId: str
 			setDraft(null);
 			setSaved(card);
 		} catch (error) {
-			if (error instanceof ApiError && (error.status === 400 || error.status === 413)) setDraft({ ...pending, submission: undefined });
+			if (error instanceof ApiError && error.code === 'card_conflict') setDraft({ ...pending, id: crypto.randomUUID(), submission: undefined });
+			else if (error instanceof ApiError && (error.status === 400 || error.status === 413)) setDraft({ ...pending, submission: undefined });
 			setError(error instanceof ApiError ? error.message : 'Brak połączenia z serwerem. Zapis nie został potwierdzony. Spróbuj zapisać ponownie.');
 		}
 		finally { setBusy(false); }
