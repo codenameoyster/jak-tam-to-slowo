@@ -6,6 +6,7 @@ const unconfigured = () => new HttpError(503, 'ai_unavailable', 'Model AI nie je
 const invalid = () => new HttpError(503, 'ai_invalid_response', 'Model AI zwrócił nieprawidłową odpowiedź. Spróbuj ponownie.');
 
 export async function requestAiJson(env: Env, instructions: string, input: unknown, schema: Record<string, unknown>): Promise<unknown> {
+	const signal = AbortSignal.timeout(45_000);
 	let requestId: string | null | undefined;
 	try {
 		if (!env.ANTHROPIC_API_KEY) throw unconfigured();
@@ -13,7 +14,7 @@ export async function requestAiJson(env: Env, instructions: string, input: unkno
 		const message = await client.messages.create({
 			model: 'claude-sonnet-5-5', max_tokens: 16_000, system: instructions, messages: [{ role: 'user', content: JSON.stringify(input) }],
 			output_config: { effort: 'high', format: { type: 'json_schema', schema } },
-		});
+		}, { signal });
 		requestId = message._request_id;
 		if (message.stop_reason === 'refusal') throw new HttpError(503, 'ai_refused', 'Model AI odmówił odpowiedzi. Zmień zapytanie.');
 		if (message.stop_reason !== 'end_turn') throw invalid();
@@ -22,9 +23,9 @@ export async function requestAiJson(env: Env, instructions: string, input: unkno
 	} catch (cause) {
 		// handleReview marks only an HttpError as editable, so every failure becomes one.
 		const error = cause instanceof HttpError ? cause
+			: signal.aborted || cause instanceof Anthropic.APIConnectionTimeoutError ? new HttpError(503, 'ai_timeout', 'Model AI nie odpowiedział na czas. Spróbuj ponownie.')
 			: cause instanceof Anthropic.AuthenticationError || cause instanceof Anthropic.PermissionDeniedError ? unconfigured()
 			: cause instanceof Anthropic.RateLimitError ? new HttpError(429, 'ai_limit', 'Osiągnięto limit modelu AI. Spróbuj później.')
-			: cause instanceof Anthropic.APIConnectionTimeoutError ? new HttpError(503, 'ai_timeout', 'Model AI nie odpowiedział na czas. Spróbuj ponownie.')
 			: new HttpError(503, 'ai_unavailable', 'Model AI jest teraz niedostępny. Spróbuj ponownie.');
 		if (cause instanceof Anthropic.APIError) requestId = cause.requestID;
 		const providerStatus = cause instanceof Anthropic.APIError ? cause.status ?? null : null;

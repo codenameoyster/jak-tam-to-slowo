@@ -133,16 +133,17 @@ export function useStudy(user: User) {
 		if (direction === current.direction || current.pending || current.savingDirection) return;
 		if ((current.answer || current.retainedAnswer) && !window.confirm('Zmienić kierunek i usunąć niezapisaną odpowiedź?')) return;
 		const version = generation.current;
-		update({ savingDirection: true, error: '' });
+		update({ savingDirection: true, error: current.queue.length ? '' : current.error });
 		try {
 			const saved = await api<User>('/me', { method: 'PATCH', body: JSON.stringify({ direction }) });
 			if (version !== generation.current) return;
 			// Both directions share the progress, so the same queue continues in the new direction.
 			const queue = live.current.queue.filter(item => item.card.id !== live.current.feedback?.cardId);
-			update({ direction: saved.direction, savedDirection: saved.direction, queue, state: queue.length ? 'answering' : 'empty', feedback: null, reviewedCard: null,
+			update({ direction: saved.direction, savedDirection: saved.direction, queue, state: queue.length ? 'answering' : 'loading', feedback: null, reviewedCard: null,
 				answer: '', cardId: null, retainedAnswer: '', savingDirection: false });
 			retryAction.current = null;
 			persist();
+			if (!queue.length) void load();
 		} catch (error) {
 			if (version !== generation.current) return;
 			retryAction.current = () => void setDirection(direction);

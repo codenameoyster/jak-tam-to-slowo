@@ -175,6 +175,29 @@ test('keeps the next card, the error, and typed text after a failed queue load',
 	await expect(page.getByLabel('Odpowiedź po polsku')).toHaveValue('мой ответ');
 });
 
+for (const scenario of [
+	{ name: 'a successful reload', failures: 1 },
+	{ name: 'a failed reload and retry', failures: 2 },
+]) test(`recovers an initial study load after a direction change with ${scenario.name}`, async ({ page }) => {
+	await seed(page);
+	let loads = 0;
+	await page.route('**/api/study', route => ++loads <= scenario.failures
+		? route.fulfill({ status: 503, json: { code: 'internal_error', error: 'Kolejka jest chwilowo niedostępna.' } }) : route.continue());
+	await page.goto('/');
+	await expect(page.getByRole('alert')).toContainText('Kolejka jest chwilowo niedostępna.');
+	await page.getByLabel('PL -> RU', { exact: true }).click();
+	await expect(page.getByLabel('PL -> RU', { exact: true })).toHaveAttribute('aria-pressed', 'true');
+	if (scenario.failures === 2) {
+		await expect.poll(() => loads).toBe(2);
+		await expect(page.getByRole('alert')).toContainText('Kolejka jest chwilowo niedostępna.');
+		await page.getByRole('button', { name: 'Ponów', exact: true }).click();
+	}
+	await expect(page.getByTestId('study-term')).toHaveText('Dom');
+	await expect(page.getByLabel('Odpowiedź po rosyjsku')).toBeEnabled();
+	await expect(page.getByTestId('study-remaining')).toHaveText('W kolejce: 1');
+	await expect(page.getByRole('alert')).toHaveCount(0);
+});
+
 test('keeps an uncertain review retry visible when an older queue load succeeds', async ({ page }) => {
 	const cards = await seed(page, 3);
 	const received = Promise.withResolvers<void>(), release = Promise.withResolvers<void>(), finished = Promise.withResolvers<void>();

@@ -176,6 +176,20 @@ it.each([
 	expect(await tables()).toEqual({ state: [], reviews: [] });
 });
 
+it.each([
+	{ name: 'an available provider', response: () => message(correct) },
+	{ name: 'a provider outage', response: () => apiError(529, 'overloaded_error') },
+])('rejects stale progress before inference with $name', async ({ response }) => {
+	expect((await review({ ...input, attemptId: crypto.randomUUID(), answer: 'Słowo' })).status).toBe(200);
+	const before = await tables();
+	provider.messages = response;
+	const rejected = await review();
+	expect(rejected.status).toBe(409);
+	expect(await rejected.json()).toMatchObject({ code: 'version_conflict' });
+	expect(provider.calls).toHaveLength(0);
+	expect(await tables()).toEqual(before);
+});
+
 it('uses the server key for the other learner’s semantic review of the same attempt', async () => {
 	expect((await review()).status).toBe(200);
 	cookie = await login(USER_B.id);
