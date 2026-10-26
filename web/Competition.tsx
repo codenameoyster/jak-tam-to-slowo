@@ -6,7 +6,7 @@ import { CompetitionLadder } from './CompetitionLadder';
 export function Competition({ user, competition, onStudy }: {
 	user: User; competition: CompetitionState; onStudy(): void;
 }): React.JSX.Element {
-	const { round, loading, readError, actionError, busy } = competition;
+	const { round, loading, readError, actionError, retryAction, busy } = competition;
 	return <section className="page competition" aria-labelledby="competition-title">
 		<h1 id="competition-title">Wyścig do {round?.target ?? COMPETITION_TARGET}</h1>
 		<p className="intro">Dobra odpowiedź: +1. Błąd lub pokazanie odpowiedzi: -1. Wynik nie spada poniżej zera.</p>
@@ -17,17 +17,17 @@ export function Competition({ user, competition, onStudy }: {
 			{round && <p className="competition-lead">{competitionStatus(round)}</p>}
 		</div>
 		<div className="competition-actions">
-			{!round && !loading && !readError && !actionError && <button className="primary" disabled={busy} onClick={competition.invite}>Zaproś do wyścigu</button>}
-			{round?.status === 'waiting' && <>
+			{!round && !loading && !readError && !retryAction && <button className="primary" disabled={busy} onClick={competition.invite}>Zaproś do wyścigu</button>}
+			{round?.status === 'waiting' && !retryAction && <>
 				{round.createdBy !== user.id && <button className="primary" disabled={busy} onClick={competition.accept}>Przyjmij wyzwanie</button>}
 				<button disabled={busy} onClick={competition.cancel}>Anuluj zaproszenie</button>
 			</>}
 			{round?.status === 'active' && <button className="primary" disabled={busy} onClick={onStudy}>Trenuj słówka</button>}
-			{round?.status === 'finished' && !actionError && <button className="primary" disabled={busy} onClick={competition.invite}>Zaproś na rewanż</button>}
+			{round?.status === 'finished' && !retryAction && <button className="primary" disabled={busy} onClick={competition.invite}>Zaproś na rewanż</button>}
 		</div>
 		{busy && <p className="delayed" role="status">Zapisywanie wyzwania…</p>}
 		{actionError && <div className="notice"><p className="error" role="alert">{actionError}</p>
-			{(!round || round.status === 'finished') && <button disabled={busy} onClick={competition.invite}>Ponów zaproszenie</button>}
+			{retryAction && <button disabled={busy} onClick={competition.retry}>{retryAction === 'invite' ? 'Ponów zaproszenie' : retryAction === 'accept' ? 'Ponów przyjęcie' : 'Ponów anulowanie'}</button>}
 		</div>}
 		{readError && <div className="notice">
 			{round && <p>Wynik może być nieaktualny</p>}

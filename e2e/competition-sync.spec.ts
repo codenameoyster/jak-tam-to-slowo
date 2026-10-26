@@ -380,6 +380,92 @@ test('resolves a lost invitation from the current snapshot before a rematch', as
 });
 
 for (const scenario of [
+	{ name: 'acceptance from the immediate read', action: 'accept', history: false, readFailure: false, finish: false, button: 'Trenuj słówka' },
+	{ name: 'acceptance from a later finished snapshot', action: 'accept', history: false, readFailure: true, finish: true, button: 'Zaproś na rewanż' },
+	{ name: 'first invitation cancellation from the immediate read', action: 'cancel', history: false, readFailure: false, finish: false, button: 'Zaproś do wyścigu' },
+	{ name: 'rematch cancellation from the immediate read', action: 'cancel', history: true, readFailure: false, finish: false, button: 'Zaproś na rewanż' },
+	{ name: 'rematch cancellation from a later poll', action: 'cancel', history: true, readFailure: true, finish: false, button: 'Zaproś na rewanż' },
+]) test(`confirms lost ${scenario.name}`, async ({ page }) => {
+	let previous: Competition | null = null;
+	if (scenario.history) {
+		previous = await start(page);
+		sql(`UPDATE competitions SET score_a = 20, status = 'finished', winner_id = '${USER_A.id}', finished_at = 1, version = version + 1 WHERE id = '${previous.id}'`);
+	}
+	const round = await invite(other);
+	await page.clock.install();
+	await page.goto('/');
+	await page.getByRole('button', { name: 'Zawody', exact: true }).click();
+	const action = page.getByRole('button', { name: scenario.action === 'accept' ? 'Przyjmij wyzwanie' : 'Anuluj zaproszenie', exact: true });
+	await expect(action).toBeEnabled();
+	await page.route(`**/api/competitions/${round.id}/${scenario.action}`, async route => {
+		expect((await route.fetch()).status()).toBe(200);
+		await route.abort();
+	});
+	if (scenario.readFailure) await page.route('**/api/competitions/current', route => route.fulfill({ status: 503, json: { error: 'Brak wyniku.' } }));
+	const refreshed = page.waitForResponse(response => response.url().endsWith('/api/competitions/current'));
+	await action.click();
+	await refreshed;
+	await expect(page.getByRole('button', { name: 'Zawody', exact: true })).toBeEnabled();
+	if (scenario.readFailure) {
+		await expect(page.getByRole('alert').filter({ hasText: 'Nie udało się zapisać wyzwania' })).toBeVisible();
+		await expect(page.getByRole('alert').filter({ hasText: 'Brak wyniku.' })).toBeVisible();
+		if (scenario.finish) sql(`UPDATE competitions SET score_a = 20, status = 'finished', winner_id = '${USER_A.id}', finished_at = 1, version = version + 1 WHERE id = '${round.id}'`);
+		await page.unroute('**/api/competitions/current');
+		await page.clock.runFor(5000);
+	}
+	await expect(page.getByRole('alert')).toHaveCount(0);
+	await expect(page.getByRole('button', { name: scenario.button, exact: true })).toBeEnabled();
+	await expect(page.getByRole('button', { name: /^Ponów/ })).toHaveCount(0);
+	if (scenario.action === 'accept') expect(await current(page)).toMatchObject({ id: round.id, status: scenario.finish ? 'finished' : 'active' });
+	else if (previous) expect(await current(page)).toMatchObject({ id: previous.id, status: 'finished' });
+	else expect(await current(page)).toBeNull();
+});
+
+for (const scenario of [
+	{ name: 'acceptance after another invitation becomes current', action: 'accept', replacement: true, retry: 'Ponów przyjęcie' },
+	{ name: 'cancellation while the confirming read fails', action: 'cancel', replacement: false, retry: 'Ponów anulowanie' },
+]) test(`retries unresolved ${scenario.name} with the original operation and round`, async ({ page }) => {
+	const round = await invite(other);
+	await page.clock.install();
+	await page.goto('/');
+	await page.getByRole('button', { name: 'Zawody', exact: true }).click();
+	const action = page.getByRole('button', { name: scenario.action === 'accept' ? 'Przyjmij wyzwanie' : 'Anuluj zaproszenie', exact: true });
+	await expect(action).toBeEnabled();
+	const path = `/api/competitions/${round.id}/${scenario.action}`;
+	await page.route(`**${path}`, async route => {
+		expect((await route.fetch()).status()).toBe(200);
+		await route.abort();
+	});
+	await page.route('**/api/competitions/current', route => route.fulfill({ status: 503, json: { error: 'Brak wyniku.' } }));
+	await action.click();
+	await expect(page.getByRole('alert').filter({ hasText: 'Nie udało się zapisać wyzwania' })).toBeVisible();
+	await expect(page.getByRole('alert').filter({ hasText: 'Brak wyniku.' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Zawody', exact: true })).toBeEnabled();
+	let replacement: Competition | null = null;
+	if (scenario.replacement) {
+		sql(`UPDATE competitions SET score_a = 20, status = 'finished', winner_id = '${USER_A.id}', finished_at = 1, version = version + 1 WHERE id = '${round.id}'`);
+		replacement = await invite(page);
+		await page.unroute('**/api/competitions/current');
+		await visibility(page, 'visible');
+		await expect(page.getByTestId('competition-scores')).toContainText('Oczekiwanie na przyjęcie wyzwania');
+		await expect(page.getByRole('alert').filter({ hasText: 'Brak wyniku.' })).toHaveCount(0);
+		await expect(page.getByRole('alert').filter({ hasText: 'Nie udało się zapisać wyzwania' })).toBeVisible();
+	}
+	await page.unroute(`**${path}`);
+	await page.unroute('**/api/competitions/current');
+	const posts: string[] = [];
+	page.on('request', request => {
+		if (request.method() === 'POST' && request.url().includes('/api/competitions')) posts.push(new URL(request.url()).pathname);
+	});
+	await page.getByRole('button', { name: scenario.retry, exact: true }).click();
+	await expect(page.getByRole('button', { name: replacement ? 'Anuluj zaproszenie' : 'Zaproś do wyścigu', exact: true })).toBeEnabled();
+	await expect(page.getByRole('alert')).toHaveCount(0);
+	expect(posts).toEqual([path]);
+	if (replacement) expect(await current(page)).toMatchObject({ id: replacement.id, status: 'waiting' });
+	else expect(await current(page)).toBeNull();
+});
+
+for (const scenario of [
 	{ name: 'the creator cancels the first invitation', invited: false, history: false },
 	{ name: 'the invited learner cancels a rematch', invited: true, history: true },
 ]) test(`selects the current round and stays busy until refresh when ${scenario.name}`, async ({ page }) => {
