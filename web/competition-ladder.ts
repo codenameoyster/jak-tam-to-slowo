@@ -85,25 +85,34 @@ function stepProgress(progress: number, start: number, end: number) {
 	return value * value * (3 - 2 * value);
 }
 
-function stepPose(from: Pose, to: Pose, progress: number): Pose {
+function stepPose(from: Pose, to: Pose, progress: number, rungs: number[]): Pose {
 	const rising = to.y < from.y;
 	const body = stepProgress(progress, .12, .94);
 	const movingFoot = from.feet.find((foot, index) => Math.abs(to.feet[index].y - foot.y) > 23);
+	const moveBothHands = from.hands.every((hand, index) => hand.y !== to.hands[index].y);
+	const moveBothFeet = from.feet.every((foot, index) => foot.y !== to.feet[index].y);
+	const supportHand = from.hands.findIndex(hand => rungs.some((y, score) => score > 0 && Math.abs(hand.y - y - 4) < 1e-6));
+	const supportedFeet = from.feet.map(foot => Math.abs(foot.angle) < 1e-6 && rungs.some(y => Math.abs(foot.y - y + 2) < 1e-6));
+	const floorSupport = from.feet.findIndex((foot, index) => from.score === 0 ? to.feet[index].y === to.y : to.score === 0 && foot.y < from.y);
+	const supportFoot = supportedFeet[floorSupport] ? floorSupport : supportedFeet.indexOf(true);
 	return {
 		score: to.score,
 		x: mix(from.x, 0, body) - (movingFoot?.side ?? 1) * 2 * Math.sin(Math.PI * progress),
 		y: mix(from.y, to.y, body),
 		hands: from.hands.map((hand, index) => {
 			const target = to.hands[index];
-			const t = stepProgress(progress, rising ? 0 : .24, rising ? .74 : 1);
+			// Keep the current grip until the other hand reaches its new bar.
+			const t = moveBothHands
+				? stepProgress(progress, index === supportHand ? .5 : 0, index === supportHand ? 1 : .5)
+				: stepProgress(progress, rising ? 0 : .24, rising ? .74 : 1);
 			const swing = hand.y === target.y ? 0 : Math.sin(Math.PI * t);
 			return { side: hand.side, x: mix(hand.x, target.x, t) + hand.side * 3 * swing, y: mix(hand.y, target.y, t) };
 		}),
 		feet: from.feet.map((foot, index) => {
 			const target = to.feet[index];
-			const trailing = from.score === 0 ? target.y === to.y : to.score === 0 && foot.y < from.y;
-			// At the floor, land the first foot before the other foot leaves its support.
-			const end = (from.score === 0 || to.score === 0) && !trailing ? .52 : .82;
+			const trailing = moveBothFeet ? index === supportFoot : from.score === 0 ? target.y === to.y : to.score === 0 && foot.y < from.y;
+			// Land the free foot before the supporting foot moves.
+			const end = moveBothFeet && !trailing ? .52 : .82;
 			const t = stepProgress(progress, trailing ? .52 : .06, trailing ? 1 : end);
 			const swing = foot.y === target.y ? 0 : Math.sin(Math.PI * t);
 			return { side: foot.side, x: mix(foot.x, target.x, t) + foot.side * 4 * swing, y: mix(foot.y, target.y, t) - 3 * swing, angle: mix(foot.angle, 0, t) + foot.side * 7 * swing };
@@ -159,7 +168,7 @@ export function updateLadder(svg: SVGSVGElement, round: Competition | null, anim
 					climber.pose = climber.to;
 					climber.started = null;
 					if (climber.winning && !reduced) motion.glowUntil = now + 600;
-				} else if (elapsed < 650) climber.pose = stepPose(climber.from, climber.landing, elapsed / 650);
+				} else if (elapsed < 650) climber.pose = stepPose(climber.from, climber.landing, elapsed / 650, rungs);
 				else if (elapsed < 900) {
 					const grasp = winningPose(index, 0, ladder), reach = stepProgress((elapsed - 650) / 250, 0, 1);
 					climber.pose = { ...climber.landing, y: mix(climber.landing.y, grasp.y, reach), prize: prizeHome,

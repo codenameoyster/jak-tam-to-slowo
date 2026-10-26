@@ -217,13 +217,57 @@ test('finishes interrupted or multi-point updates', async ({ page }) => {
 	await update(withScores(10, 8, { ...snapshot, version: 3 }));
 	await expect(ladder.locator('[data-score-label="0"]')).toHaveText('10');
 	expect((await geometry(ladder)).people[0].body).toEqual(interrupted.people[0].body);
-	await page.clock.runFor(700);
+	await page.clock.runFor(160);
+	supported(await geometry(ladder));
+	await page.clock.runFor(540);
 	resting(await geometry(ladder), 10);
 	await update(withScores(13, 8, { ...snapshot, version: 4 }), true);
 	await expect(ladder.locator('[data-score-label="0"]')).toHaveText('13');
 	const final = await geometry(ladder);
 	resting(final, 13);
 	await page.clock.runFor(2000);
+	expect(await geometry(ladder)).toEqual(final);
+});
+
+for (const scenario of [
+	{ name: 'continued descent', person: 0, from: 10, first: 9, to: 8, interruptAt: 320 },
+	{ name: 'ascent reversed to descent', person: 0, from: 8, first: 9, to: 8, interruptAt: 320 },
+	{ name: 'descent reversed to ascent', person: 0, from: 8, first: 7, to: 8, interruptAt: 320 },
+	{ name: 'second participant ascent', person: 1, from: 8, first: 9, to: 10, interruptAt: 320 },
+	{ name: 'second participant descent', person: 1, from: 10, first: 9, to: 8, interruptAt: 320 },
+	{ name: 'early ascent', person: 0, from: 8, first: 9, to: 10, interruptAt: 160 },
+	{ name: 'late descent', person: 0, from: 10, first: 9, to: 8, interruptAt: 480 },
+	{ name: 'leaving zero', person: 0, from: 0, first: 1, to: 2, interruptAt: 320 },
+	{ name: 'reaching zero', person: 0, from: 2, first: 1, to: 0, interruptAt: 320 },
+	{ name: 'reversal back to zero', person: 0, from: 0, first: 1, to: 0, interruptAt: 320 },
+	{ name: 'reversal before zero', person: 0, from: 1, first: 0, to: 1, interruptAt: 320 },
+	{ name: 'winning ascent', person: 0, from: 18, first: 19, to: 20, interruptAt: 320 },
+	{ name: 'upper-rung descent', person: 0, from: 19, first: 18, to: 17, interruptAt: 320 },
+]) test(`keeps support through interrupted motion: ${scenario.name}`, async ({ page }) => {
+	const round = (score: number, version: number) => withScores(scenario.person === 0 ? score : 8, scenario.person === 1 ? score : 8, { ...snapshot, version });
+	const update = await fixedRound(page, round(scenario.from, 1));
+	const ladder = await open(page);
+	const label = ladder.locator(`[data-score-label="${scenario.person}"]`);
+	await update(round(scenario.first, 2));
+	await expect(label).toHaveText(String(scenario.first));
+	await page.clock.runFor(scenario.interruptAt);
+	const interrupted = await geometry(ladder);
+	supported(interrupted, scenario.person);
+	await update(round(scenario.to, 3));
+	await expect(label).toHaveText(String(scenario.to));
+	expect((await geometry(ladder)).people[scenario.person]).toEqual(interrupted.people[scenario.person]);
+	for (let elapsed = 16; elapsed <= 640; elapsed += 16) {
+		await page.clock.runFor(16);
+		const frame = await geometry(ladder);
+		supported(frame, scenario.person);
+		if (elapsed === 160 || elapsed === 320 || elapsed === 480) await evidence(page, `interrupted-${scenario.name}-${elapsed}`);
+	}
+	await page.clock.runFor(16);
+	resting(await geometry(ladder), scenario.to, scenario.person);
+	await page.clock.runFor(1100);
+	const final = await geometry(ladder);
+	resting(final, scenario.to, scenario.person);
+	await page.clock.runFor(700);
 	expect(await geometry(ladder)).toEqual(final);
 });
 
