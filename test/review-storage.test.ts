@@ -18,6 +18,7 @@ const again: GradeResult = { grade: 'again', correction: 'Słowo', explanation: 
 const firstResult: ReviewResult = {
 	...correct, attemptId: input.attemptId, cardId: CARD_A.id, direction: 'ru-pl', source: 'exact',
 	progress: { correct: 1, incorrect: 0, lastCorrectAt: now, lastIncorrectAt: null, version: 1 },
+	competition: null,
 };
 // The card_progress row that handleReview reads after firstResult is stored.
 const reviewed = firstResult.progress;
@@ -126,7 +127,7 @@ it('replays the original progress after a later review, edit, and archive', asyn
 	await commitReview(env, USER_A.id, input, undefined, correct, 'exact', now);
 	const reveal: ReviewInput = { attemptId: crypto.randomUUID(), cardId: CARD_A.id, cardVersion: 1, progressVersion: 1, direction: 'ru-pl', action: 'reveal' };
 	const later = await commitReview(env, USER_A.id, reveal, reviewed, again, 'reveal', now + 1000);
-	expect(later).toEqual({ ...again, attemptId: reveal.attemptId, cardId: CARD_A.id, direction: 'ru-pl', source: 'reveal', progress: { correct: 1, incorrect: 1, lastCorrectAt: now, lastIncorrectAt: now + 1000, version: 2 } });
+	expect(later).toEqual({ ...again, attemptId: reveal.attemptId, cardId: CARD_A.id, direction: 'ru-pl', source: 'reveal', progress: { correct: 1, incorrect: 1, lastCorrectAt: now, lastIncorrectAt: now + 1000, version: 2 }, competition: null });
 	await env.DB.prepare('UPDATE cards SET version = 2, pl = ? WHERE id = ?').bind('Wyraz', CARD_A.id).run();
 	expect(await commitReview(env, USER_A.id, input, undefined, again, 'ai', now + 2000)).toEqual(firstResult);
 	await env.DB.prepare('UPDATE cards SET version = 3, archived = 1 WHERE id = ?').bind(CARD_A.id).run();

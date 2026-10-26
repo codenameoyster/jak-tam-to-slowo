@@ -8,6 +8,7 @@ import { apiError, createProvider, message } from './provider';
 const now = Date.parse('2026-10-21T10:00:00.000Z');
 const input: ReviewInput = { attemptId: '10000000-0000-4000-8000-000000000001', cardId: CARD_A.id, cardVersion: 1, progressVersion: 0, direction: 'ru-pl', action: 'answer', answer: 'wyraz' };
 const correct = { grade: 'correct', explanation: 'Poprawne tłumaczenie w tym znaczeniu.' };
+const roundId = '33333333-3333-4333-8333-333333333333';
 let provider: ReturnType<typeof createProvider>, cookie: string;
 beforeEach(async () => {
 	vi.useFakeTimers({ toFake: ['Date'] });
@@ -24,6 +25,23 @@ async function tables() {
 	return {
 		state: (await env.DB.prepare('SELECT * FROM card_progress ORDER BY user_id, card_id').all()).results,
 		reviews: (await env.DB.prepare('SELECT * FROM reviews ORDER BY user_id, attempt_id').all()).results,
+	};
+}
+
+async function startCompetition() {
+	const otherCookie = await login(USER_B.id);
+	expect((await request('/api/competitions', { method: 'POST', cookie, body: { id: roundId } })).status).toBe(200);
+	const response = await request(`/api/competitions/${roundId}/accept`, { method: 'POST', cookie: otherCookie });
+	expect(response.status).toBe(200);
+	expect(await response.json()).toMatchObject({ id: roundId, status: 'active', version: 2 });
+	await env.DB.prepare('UPDATE competitions SET score_a = 8 WHERE id = ?').bind(roundId).run();
+}
+
+async function competitionTables() {
+	return {
+		...await tables(),
+		rounds: (await env.DB.prepare('SELECT * FROM competitions ORDER BY id').all()).results,
+		events: (await env.DB.prepare('SELECT * FROM competition_events ORDER BY version').all()).results,
 	};
 }
 
@@ -230,4 +248,68 @@ it('keeps a storage outcome uncertain when the batch commits and then throws', a
 	expect((await tables()).reviews).toHaveLength(1);
 	expect((await review({ ...input, answer: 'Słowo' })).status).toBe(200);
 	expect((await tables()).reviews).toHaveLength(1);
+});
+
+it.each([
+	{ name: 'add', savedId: undefined, changedId: roundId },
+	{ name: 'remove', savedId: roundId, changedId: undefined },
+	{ name: 'replace', savedId: roundId, changedId: '55555555-5555-4555-8555-555555555555' },
+])('keeps competition ID immutable: $name', async ({ savedId, changedId }) => {
+	await startCompetition();
+	expect((await review({ ...input, competitionId: savedId })).status).toBe(200);
+	const before = await competitionTables();
+	Reflect.deleteProperty(env, 'ANTHROPIC_API_KEY');
+	const response = await review({ ...input, competitionId: changedId });
+	expect(response.status).toBe(409);
+	expect(await response.json()).toMatchObject({ code: 'review_conflict' });
+	expect(provider.calls).toHaveLength(1);
+	expect(await competitionTables()).toEqual(before);
+});
+
+it.each([
+	{ name: 'null', change: { competitionId: null } },
+	{ name: 'empty string', change: { competitionId: '' } },
+	{ name: 'non-string', change: { competitionId: 1 } },
+	{ name: 'malformed UUID', change: { competitionId: 'invalid' } },
+	{ name: 'client score field', change: { competitionId: roundId, score: 20 } },
+])('rejects malformed competition input: $name', async ({ change }) => {
+	await startCompetition();
+	const before = await competitionTables();
+	const response = await review({ ...input, ...change });
+	expect(response.status).toBe(400);
+	expect(await response.json()).toMatchObject({ code: 'invalid_input' });
+	expect(provider.calls).toHaveLength(0);
+	expect(await competitionTables()).toEqual(before);
+});
+
+it('leaves the score unchanged after grading failure', async () => {
+	await startCompetition();
+	expect((await review({ ...input, attemptId: crypto.randomUUID(), answer: 'Słowo', competitionId: roundId })).status).toBe(200);
+	const before = await competitionTables();
+	provider.messages = () => apiError(529, 'overloaded_error');
+	const response = await review({ ...input, progressVersion: 1, competitionId: roundId });
+	expect(response.status).toBe(503);
+	expect(response.headers.get('X-Review-Recovery')).toBe('editable');
+	expect(await response.json()).toMatchObject({ code: 'ai_unavailable' });
+	expect(await competitionTables()).toEqual(before);
+	expect(before.events).toHaveLength(1);
+});
+
+it('replays after the database response is lost', async () => {
+	await startCompetition();
+	const batch = env.DB.batch.bind(env.DB);
+	vi.spyOn(env.DB, 'batch').mockImplementationOnce(batch).mockImplementationOnce(async statements => { await batch(statements); throw new Error('Lost database response.'); });
+	const attempt = { ...input, answer: 'Słowo', competitionId: roundId };
+	const response = await review(attempt);
+	expect(response.status).toBe(500);
+	expect(response.headers.get('X-Review-Recovery')).toBeNull();
+	const saved = await competitionTables();
+	expect(saved.reviews).toHaveLength(1);
+	expect(saved.state).toMatchObject([{ correct: 1, version: 1 }]);
+	expect(saved.rounds).toMatchObject([{ score_a: 9, version: 3 }]);
+	expect(saved.events).toHaveLength(1);
+	const retry = await review(attempt);
+	expect(retry.status).toBe(200);
+	expect(await retry.json()).toEqual({ ...JSON.parse(String(saved.reviews[0].result_json)), competition: { competitionId: roundId, delta: 1, scoreAfter: 9, version: 3 } });
+	expect(await competitionTables()).toEqual(saved);
 });

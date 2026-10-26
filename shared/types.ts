@@ -56,14 +56,22 @@ export interface ReviewBase {
 	cardVersion: number;
 	progressVersion: number;
 	direction: Direction;
+	competitionId?: string;
 }
 export type ReviewInput = ReviewBase & ({ action: 'answer'; answer: string } | { action: 'reveal' });
+export interface CompetitionContribution {
+	competitionId: string;
+	delta: -1 | 0 | 1;
+	scoreAfter: number;
+	version: number;
+}
 export interface ReviewResult extends GradeResult {
 	attemptId: string;
 	cardId: string;
 	direction: Direction;
 	source: 'exact' | 'ai' | 'reveal';
 	progress: Progress;
+	competition: CompetitionContribution | null;
 }
 
 export type DraftResult = { kind: 'choices'; choices: string[] } | { kind: 'draft'; card: CardContent };
