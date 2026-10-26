@@ -1,5 +1,6 @@
 import { handleMe, handleSession, requireUser } from './auth';
 import { handleCards } from './cards';
+import { handleCompetitions } from './competitions';
 import { handleDraft } from './drafts';
 import { handleDictation } from './dictation';
 import { HttpError, protectRequest } from './http';
@@ -24,7 +25,7 @@ export default {
 				else if (pathname === '/api/cards/draft') response = await handleDraft(request, env);
 				else if (pathname === '/api/dictation') response = await handleDictation(request, env);
 				else {
-					const result = await handleCards(request, env, user);
+					const result = await handleCompetitions(request, env, user) ?? await handleCards(request, env, user);
 					if (!result) throw new HttpError(404, 'not_found', 'Nie znaleziono strony.');
 					response = result;
 				}

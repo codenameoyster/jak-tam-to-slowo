@@ -19,6 +19,10 @@ function accounts(env: Env): Account[] {
 	} catch { throw new HttpError(503, 'setup_required', 'Konta nie są skonfigurowane. Skontaktuj się z właścicielem aplikacji.'); }
 }
 
+export function competitionAccounts(env: Env): Pick<User, 'id' | 'displayName'>[] {
+	return accounts(env).map(({ id, displayName }) => ({ id, displayName }));
+}
+
 function hex(bytes: Uint8Array): string { return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join(''); }
 async function hash(value: string): Promise<string> { return hex(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)))); }
 function fingerprint(account: Account): Promise<string> { return hash(JSON.stringify([account.id, account.username, account.passwordHash])); }

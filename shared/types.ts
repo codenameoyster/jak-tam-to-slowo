@@ -9,6 +9,22 @@ export interface User {
 	direction: Direction;
 }
 
+export const COMPETITION_TARGET = 20;
+export type CompetitionStatus = 'waiting' | 'active' | 'finished' | 'cancelled';
+export interface CompetitionParticipant { id: string; displayName: string; score: number }
+export interface Competition {
+	id: string;
+	participants: [CompetitionParticipant, CompetitionParticipant];
+	createdBy: string;
+	target: number;
+	status: CompetitionStatus;
+	winnerId: string | null;
+	createdAt: number;
+	startedAt: number | null;
+	finishedAt: number | null;
+	version: number;
+}
+
 export interface CardContent {
 	pl: string;
 	ru: string;
