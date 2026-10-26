@@ -1,19 +1,20 @@
 import { useEffect, useRef } from 'react';
-import type { Direction, User } from '../shared/types';
+import type { Competition, Direction, ReviewResult, User } from '../shared/types';
 import { useStudy } from './useStudy';
 import { Dictation, dictatedValue } from './Dictation';
 import { Icon } from './Icon';
 
-export function Study({ user, onDirection, onBusy }: {
-	user: User; onDirection(direction: Direction): void; onBusy(busy: boolean): void;
+export function Study({ user, competition, onReview, onDirection, onBusy }: {
+	user: User; competition: Competition | null; onReview(result: ReviewResult): void; onDirection(direction: Direction): void; onBusy(busy: boolean): void;
 }) {
-	const study = useStudy(user);
+	const study = useStudy(user, competition?.status === 'active' ? competition.id : null, onReview);
 	const input = useRef<HTMLInputElement>(null);
 	const nextButton = useRef<HTMLButtonElement>(null);
 	const polish = study.direction === 'ru-pl';
 	const target = polish ? 'pl' : 'ru';
 	const current = study.reviewedCard ?? study.current?.card;
 	const grade = study.feedback && { correct: 'Dobrze', almost: 'Prawie dobrze', again: 'Powtórz' }[study.feedback.grade];
+	const contribution = study.feedback?.competition?.competitionId === competition?.id ? study.feedback?.competition : null;
 
 	useEffect(() => { onDirection(study.savedDirection); }, [study.savedDirection, onDirection]);
 	useEffect(() => { onBusy(study.busy); }, [study.busy, onBusy]);
@@ -52,6 +53,7 @@ export function Study({ user, onDirection, onBusy }: {
 				<p className="study-correction" data-testid="study-correction" lang={target}>{study.feedback.correction}</p>
 				{current && <p className="study-example" lang={target}>{polish ? current.examplePl : current.exampleRu}</p>}
 				<p>{study.feedback.explanation}</p>
+				{contribution && <p>{contribution.delta > 0 ? 'Idziesz w górę o 1.' : contribution.delta < 0 ? 'Cofasz się o 1.' : 'Zostajesz na starcie.'} Wynik: {contribution.scoreAfter}.</p>}
 			</div>
 			<button ref={nextButton} className="primary" onClick={study.next}>Dalej</button>
 		</>}

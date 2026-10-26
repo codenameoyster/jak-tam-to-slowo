@@ -6,14 +6,20 @@ import { Words } from './Words';
 import { AddWord } from './AddWord';
 import { Study } from './Study';
 import { Icon } from './Icon';
+import { useCompetition } from './useCompetition';
+import { Competition } from './Competition';
+import { CompetitionSummary } from './CompetitionSummary';
 
 export function App() {
 	const [user, setUser] = useState<User | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState('');
-	const [screen, setScreen] = useState<'study' | 'words' | 'add'>('study');
+	const [screen, setScreen] = useState<'study' | 'words' | 'add' | 'competitions'>('study');
 	const [selectedCard, setSelectedCard] = useState<Card | null>(null);
+	const competition = useCompetition(user);
+	const locked = busy || competition.busy;
+	const reviewSaved = useCallback(() => { void competition.refresh(); }, [competition.refresh]);
 	const expired = useCallback(() => {
 		setApiAccount(null);
 		setUser(null);
@@ -96,14 +102,16 @@ export function App() {
 	}
 
 	return <main className={`app${user ? ' signed-in' : ''}`}>
-		<header className="brand"><span className="app-icon" aria-hidden="true">Ł</span><span className="brand-name" lang="pl">Jak tam to słowo?</span>{user && <div className="account"><span className="avatar" aria-hidden="true">{user.displayName.slice(0, 1)}</span><span className="name">{user.displayName}</span><button className="quiet" aria-label="Wyloguj" onClick={logout} disabled={busy}><Icon name="exit" /></button></div>}</header>
+		<header className="brand"><span className="app-icon" aria-hidden="true">Ł</span><span className="brand-name" lang="pl">Jak tam to słowo?</span>{user && <div className="account"><span className="avatar" aria-hidden="true">{user.displayName.slice(0, 1)}</span><span className="name">{user.displayName}</span><button className="quiet" aria-label="Wyloguj" onClick={logout} disabled={locked}><Icon name="exit" /></button></div>}</header>
 		{loading ? <p role="status">Wczytywanie…</p> : user ? <>
+			{screen !== 'competitions' && competition.round && <CompetitionSummary userId={user.id} round={competition.round} stale={!!competition.readError} busy={locked} onOpen={() => setScreen('competitions')} />}
 			<nav className="tabs" aria-label="Sekcje">
-				<button aria-pressed={screen === 'study'} disabled={busy} onClick={() => setScreen('study')}><Icon name="study" />Nauka</button>
-				<button aria-pressed={screen === 'words'} disabled={busy} onClick={() => { setSelectedCard(null); setScreen('words'); }}><Icon name="words" />Słówka</button>
-				<button aria-pressed={screen === 'add'} disabled={busy} onClick={() => setScreen('add')}><Icon name="add" />Dodaj</button>
+				<button aria-pressed={screen === 'study'} disabled={locked} onClick={() => setScreen('study')}><Icon name="study" />Nauka</button>
+				<button aria-pressed={screen === 'words'} disabled={locked} onClick={() => { setSelectedCard(null); setScreen('words'); }}><Icon name="words" />Słówka</button>
+				<button aria-pressed={screen === 'add'} disabled={locked} onClick={() => setScreen('add')}><Icon name="add" />Dodaj</button>
+				<button aria-pressed={screen === 'competitions'} disabled={locked} onClick={() => setScreen('competitions')}><Icon name="trophy" />Zawody</button>
 			</nav>
-			{screen === 'add' ? <AddWord key={user.id} userId={user.id} busy={busy} onBusy={setBusy} onOpen={card => { setSelectedCard(card); setScreen('words'); }} /> : screen === 'words' ? <Words key={user.id} userId={user.id} initialCard={selectedCard} onBusy={setBusy} /> : <Study key={user.id} user={user} onDirection={directionSaved} onBusy={setBusy} />}
+			{screen === 'competitions' ? <Competition user={user} competition={competition} onStudy={() => setScreen('study')} /> : screen === 'add' ? <AddWord key={user.id} userId={user.id} busy={busy} onBusy={setBusy} onOpen={card => { setSelectedCard(card); setScreen('words'); }} /> : screen === 'words' ? <Words key={user.id} userId={user.id} initialCard={selectedCard} onBusy={setBusy} /> : <Study key={user.id} user={user} competition={competition.round} onReview={reviewSaved} onDirection={directionSaved} onBusy={setBusy} />}
 		</> : !error && <Login onLogin={signedIn} />}
 		{error && <div className="notice"><p className="error" role="alert">{error}</p>{!user && <button onClick={load}>Ponów</button>}</div>}
 	</main>;

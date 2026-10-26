@@ -33,7 +33,7 @@ function initial(user: User): Session {
 	};
 }
 
-export function useStudy(user: User) {
+export function useStudy(user: User, competitionId: string | null, onReview: (result: ReviewResult) => void) {
 	const [session, setSession] = useState(() => initial(user));
 	const live = useRef(session);
 	const generation = useRef(0);
@@ -161,6 +161,7 @@ export function useStudy(user: User) {
 		const input: ReviewInput | null = current.pending ? null : {
 			attemptId: crypto.randomUUID(), cardId: item.card.id, cardVersion: item.card.version,
 			progressVersion: item.progress?.version ?? 0, direction: current.direction,
+			...(competitionId ? { competitionId } : {}),
 			...(action === 'answer' ? { action, answer: current.answer } : { action }),
 		};
 		const pending = current.pending ?? JSON.stringify(input);
@@ -177,6 +178,7 @@ export function useStudy(user: User) {
 			update({ feedback, state: 'feedback', pending: null, answer: '', cardId: null, retainedAnswer: '', error: '' });
 			retryAction.current = null;
 			persist();
+			onReview(feedback);
 			// The answer changes the order, so the queue is built again while the feedback shows.
 			generation.current++;
 			refill.current = null;
