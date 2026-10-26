@@ -18,10 +18,10 @@ export function Competition({ user, competition, onStudy }: {
 			{!round && !loading && !readError && !actionError && <button className="primary" disabled={busy} onClick={competition.invite}>Zaproś do wyścigu</button>}
 			{round?.status === 'waiting' && <>
 				{round.createdBy !== user.id && <button className="primary" disabled={busy} onClick={competition.accept}>Przyjmij wyzwanie</button>}
-				<button disabled={busy} onClick={competition.cancel}>Anuluj wyzwanie</button>
+				<button disabled={busy} onClick={competition.cancel}>Anuluj zaproszenie</button>
 			</>}
-			{round?.status === 'active' && <button className="primary" disabled={busy} onClick={onStudy}>Przejdź do nauki</button>}
-			{round?.status === 'finished' && !actionError && <button className="primary" disabled={busy} onClick={competition.invite}>Rewanż</button>}
+			{round?.status === 'active' && <button className="primary" disabled={busy} onClick={onStudy}>Trenuj słówka</button>}
+			{round?.status === 'finished' && !actionError && <button className="primary" disabled={busy} onClick={competition.invite}>Zaproś na rewanż</button>}
 		</div>
 		{busy && <p className="delayed" role="status">Zapisywanie wyzwania…</p>}
 		{actionError && <div className="notice"><p className="error" role="alert">{actionError}</p>
@@ -30,7 +30,7 @@ export function Competition({ user, competition, onStudy }: {
 		{readError && <div className="notice">
 			{round && <p>Wynik może być nieaktualny</p>}
 			<p className="error" role="alert">{readError}</p>
-			<button disabled={busy || loading} onClick={competition.refresh}>Ponów</button>
+			<button disabled={busy || loading} onClick={competition.refresh}>{round ? 'Odśwież' : 'Ponów'}</button>
 		</div>}
 		<details className="competition-rules"><summary>Zasady wyścigu</summary>
 			<p>Wyścig zaczyna się po przyjęciu zaproszenia. Wygrywa osoba, która pierwsza zdobędzie {round?.target ?? COMPETITION_TARGET} punktów.</p>

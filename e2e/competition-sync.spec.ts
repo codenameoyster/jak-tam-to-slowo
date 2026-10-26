@@ -84,7 +84,7 @@ test("shows another learner's invitation and saved score", async ({ page }) => {
 	await invite(page);
 	await expect(other.getByRole('button', { name: 'Przyjmij wyzwanie', exact: true })).toBeVisible({ timeout: 7000 });
 	await other.getByRole('button', { name: 'Przyjmij wyzwanie', exact: true }).click();
-	await expect(other.getByRole('button', { name: 'Przejdź do nauki', exact: true })).toBeEnabled();
+	await expect(other.getByRole('button', { name: 'Trenuj słówka', exact: true })).toBeEnabled();
 	await page.goto('/');
 	await scores(page, 0, 0);
 	await answer(page);
@@ -119,6 +119,54 @@ test('shares one snapshot across tabs', async ({ page }) => {
 	await expect.poll(() => reads).toBe(before + 2);
 	await other.goto('/');
 	await scores(other, 1, 0, USER_B);
+});
+
+test('uses the current round when an editable review retry creates a new attempt', async ({ page }) => {
+	await seed(page);
+	const round = await invite(page);
+	await page.clock.install();
+	await page.goto('/');
+	await scores(page, 0, 0);
+	await page.getByLabel('Odpowiedź po polsku').fill('ошибка подключения');
+	const failed = page.waitForResponse(response => response.url().endsWith('/api/reviews'));
+	await page.getByRole('button', { name: 'Sprawdź', exact: true }).click();
+	const rejected = await failed;
+	expect(rejected.status()).toBe(503);
+	expect(rejected.headers()['x-review-recovery']).toBe('editable');
+	const original = rejected.request().postDataJSON();
+	expect(original.competitionId).toBeUndefined();
+	await expect(page.getByLabel('Odpowiedź po polsku')).toBeEnabled();
+	expect((await other.request.post(`/api/competitions/${round.id}/accept`, { data: {} })).status()).toBe(200);
+	await page.clock.runFor(5000);
+	await expect(page.getByTestId('competition-summary')).not.toContainText('Oczekiwanie na przyjęcie wyzwania');
+	await page.getByLabel('Odpowiedź po polsku').fill('Dom');
+	const saved = page.waitForResponse(response => response.url().endsWith('/api/reviews'));
+	await page.getByRole('button', { name: 'Ponów', exact: true }).click();
+	const response = await saved;
+	expect(response.status()).toBe(200);
+	const retry = response.request().postDataJSON();
+	expect(retry.attemptId).not.toBe(original.attemptId);
+	expect(retry.competitionId).toBe(round.id);
+	expect((await response.json()).competition).toMatchObject({ competitionId: round.id, delta: 1, scoreAfter: 1 });
+	await expect(page.locator('.study-feedback')).toContainText('Wynik: 1.');
+	await scores(page, 1, 0);
+});
+
+for (const scenario of [
+	{ name: 'a tie at zero', a: 0, b: 0, text: 'Remis.' },
+	{ name: 'a tie above zero', a: 8, b: 8, text: 'Remis.' },
+	{ name: 'the first learner leads by one', a: 9, b: 8, text: `${USER_A.displayName} prowadzi o 1 punkt.` },
+	{ name: 'the second learner leads by four', a: 8, b: 12, text: `${USER_B.displayName} prowadzi o 4 punkty.` },
+	{ name: 'a twelve-point lead', a: 12, b: 0, text: `${USER_A.displayName} prowadzi o 12 punktów.` },
+]) test(`shows the active result in both score displays for ${scenario.name}`, async ({ page }) => {
+	const round = await start(page);
+	sql(`UPDATE competitions SET score_a = ${scenario.a}, score_b = ${scenario.b}, version = version + 1 WHERE id = '${round.id}'`);
+	await page.goto('/');
+	await expect(page.getByTestId('competition-summary')).toContainText(scenario.text);
+	await scores(page, scenario.a, scenario.b);
+	await page.getByTestId('competition-summary').click();
+	await expect(page.getByTestId('competition-scores')).toContainText(scenario.text);
+	await scores(page, scenario.a, scenario.b, USER_A, true);
 });
 
 test('retries a lost review against the same round after reload', async ({ page }) => {
@@ -225,7 +273,7 @@ for (const scenario of [
 		} else await expect(page.getByRole('status').filter({ hasText: 'Wczytywanie wyzwania' })).toBeVisible();
 	} finally { release.resolve(); releaseNew.resolve(); }
 	await scores(page, 0, 0, USER_B, true);
-	await expect(page.getByRole('button', { name: 'Przejdź do nauki', exact: true })).toBeEnabled();
+	await expect(page.getByRole('button', { name: 'Trenuj słówka', exact: true })).toBeEnabled();
 	await expect(page.getByRole('button', { name: 'Przyjmij wyzwanie', exact: true })).toHaveCount(0);
 });
 
@@ -239,7 +287,7 @@ for (const scenario of [
 	page.on('request', request => { if (request.url().endsWith('/api/competitions/current')) readCount++; });
 	await page.goto('/');
 	await page.getByRole('button', { name: 'Zawody', exact: true }).click();
-	await expect(page.getByRole('button', { name: scenario.active ? 'Przejdź do nauki' : 'Zaproś do wyścigu', exact: true })).toBeEnabled();
+	await expect(page.getByRole('button', { name: scenario.active ? 'Trenuj słówka' : 'Zaproś do wyścigu', exact: true })).toBeEnabled();
 	await visibility(page, 'hidden');
 	const before = readCount;
 	await page.clock.runFor(15000);
@@ -262,7 +310,8 @@ test('keeps answer feedback after a competition read failure', async ({ page }) 
 	await page.getByTestId('competition-summary').click();
 	await expect(page.getByRole('alert')).toContainText('Brak wyniku.');
 	await page.unroute('**/api/competitions/current');
-	await page.getByRole('button', { name: 'Ponów', exact: true }).click();
+	await expect(page.getByRole('button', { name: 'Odśwież', exact: true })).toBeEnabled();
+	await page.getByRole('button', { name: 'Odśwież', exact: true }).click();
 	await scores(page, 1, 0, USER_A, true);
 	await expect(page.getByText('Wynik może być nieaktualny', { exact: true })).toHaveCount(0);
 });
@@ -302,7 +351,7 @@ test('retries the same invitation UUID', async ({ page }) => {
 	const retry = page.waitForRequest(request => request.url().endsWith('/api/competitions') && request.method() === 'POST');
 	await page.getByRole('button', { name: 'Ponów zaproszenie', exact: true }).click();
 	expect((await retry).postData()).toBe(originalBody);
-	await expect(page.getByRole('button', { name: 'Anuluj wyzwanie', exact: true })).toBeEnabled();
+	await expect(page.getByRole('button', { name: 'Anuluj zaproszenie', exact: true })).toBeEnabled();
 	await expect(page.getByRole('button', { name: 'Przyjmij wyzwanie', exact: true })).toHaveCount(0);
 	expect((await current(page)).id).toBe(JSON.parse(originalBody).id);
 	sql('CREATE TABLE one_round (n INTEGER CHECK (n = 1)); INSERT INTO one_round SELECT count(*) FROM competitions; DROP TABLE one_round;');
@@ -314,7 +363,7 @@ test('resolves a lost invitation from the current snapshot before a rematch', as
 	await page.getByRole('button', { name: 'Zawody', exact: true }).click();
 	await page.route('**/api/competitions', async route => { await route.fetch(); await route.abort(); });
 	await page.getByRole('button', { name: 'Zaproś do wyścigu', exact: true }).click();
-	await expect(page.getByRole('button', { name: 'Anuluj wyzwanie', exact: true })).toBeEnabled();
+	await expect(page.getByRole('button', { name: 'Anuluj zaproszenie', exact: true })).toBeEnabled();
 	const original = await current(page);
 	expect((await other.request.post(`/api/competitions/${original.id}/accept`, { data: {} })).status()).toBe(200);
 	sql(`UPDATE competitions SET score_b = 19, version = version + 1 WHERE id = '${original.id}'`);
@@ -324,8 +373,8 @@ test('resolves a lost invitation from the current snapshot before a rematch', as
 	await expect(page.getByTestId('competition-scores')).toContainText(`Wygrywa ${USER_B.displayName}!`);
 	await page.unroute('**/api/competitions');
 	await expect(page.getByRole('alert')).toHaveCount(0);
-	await page.getByRole('button', { name: 'Rewanż', exact: true }).click();
-	await expect(page.getByRole('button', { name: 'Anuluj wyzwanie', exact: true })).toBeEnabled();
+	await page.getByRole('button', { name: 'Zaproś na rewanż', exact: true }).click();
+	await expect(page.getByRole('button', { name: 'Anuluj zaproszenie', exact: true })).toBeEnabled();
 	expect((await current(page)).id).not.toBe(original.id);
 	await scores(page, 0, 0, USER_A, true);
 });
@@ -342,22 +391,22 @@ for (const scenario of [
 	await invite(scenario.invited ? other : page);
 	await page.goto('/');
 	await page.getByRole('button', { name: 'Zawody', exact: true }).click();
-	await expect(page.getByRole('button', { name: 'Anuluj wyzwanie', exact: true })).toBeEnabled();
+	await expect(page.getByRole('button', { name: 'Anuluj zaproszenie', exact: true })).toBeEnabled();
 	const received = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
 	await page.route('**/api/competitions/current', async route => {
 		received.resolve();
 		await release.promise;
 		await route.continue();
 	});
-	await page.getByRole('button', { name: 'Anuluj wyzwanie', exact: true }).click();
+	await page.getByRole('button', { name: 'Anuluj zaproszenie', exact: true }).click();
 	await received.promise;
 	try {
-		await expect(page.getByRole('button', { name: 'Anuluj wyzwanie', exact: true })).toBeDisabled();
+		await expect(page.getByRole('button', { name: 'Anuluj zaproszenie', exact: true })).toBeDisabled();
 		await expect(page.getByRole('navigation').locator('button:disabled')).toHaveCount(4);
 		await expect(page.getByRole('button', { name: 'Wyloguj', exact: true })).toBeDisabled();
 	} finally { release.resolve(); }
-	await expect(page.getByRole('button', { name: scenario.history ? 'Rewanż' : 'Zaproś do wyścigu', exact: true })).toBeEnabled();
-	await expect(page.getByRole('button', { name: 'Anuluj wyzwanie', exact: true })).toHaveCount(0);
+	await expect(page.getByRole('button', { name: scenario.history ? 'Zaproś na rewanż' : 'Zaproś do wyścigu', exact: true })).toBeEnabled();
+	await expect(page.getByRole('button', { name: 'Anuluj zaproszenie', exact: true })).toHaveCount(0);
 	if (finished) {
 		expect((await current(page)).id).toBe(finished.id);
 		await scores(page, 20, 0, USER_A, true);
@@ -368,15 +417,15 @@ test('refreshes after a lifecycle conflict', async ({ page }) => {
 	const round = await invite(page);
 	await page.goto('/');
 	await page.getByRole('button', { name: 'Zawody', exact: true }).click();
-	await expect(page.getByRole('button', { name: 'Anuluj wyzwanie', exact: true })).toBeEnabled();
+	await expect(page.getByRole('button', { name: 'Anuluj zaproszenie', exact: true })).toBeEnabled();
 	await page.route(`**/api/competitions/${round.id}/cancel`, async route => {
 		expect((await other.request.post(`/api/competitions/${round.id}/accept`, { data: {} })).status()).toBe(200);
 		await route.continue();
 	});
-	await page.getByRole('button', { name: 'Anuluj wyzwanie', exact: true }).click();
+	await page.getByRole('button', { name: 'Anuluj zaproszenie', exact: true }).click();
 	await expect(page.getByRole('alert')).toContainText('Stan wyzwania już się zmienił');
-	await expect(page.getByRole('button', { name: 'Przejdź do nauki', exact: true })).toBeEnabled();
-	await expect(page.getByRole('button', { name: 'Anuluj wyzwanie', exact: true })).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'Trenuj słówka', exact: true })).toBeEnabled();
+	await expect(page.getByRole('button', { name: 'Anuluj zaproszenie', exact: true })).toHaveCount(0);
 });
 
 test('locks navigation while a review is saved', async ({ page }) => {
@@ -420,8 +469,9 @@ for (const scenario of [
 	if (scenario.after === 20) {
 		await expect(page.getByTestId('competition-summary')).toContainText(`Wygrywa ${USER_A.displayName}!`);
 		await page.getByTestId('competition-summary').click();
-		await page.getByRole('button', { name: 'Rewanż', exact: true }).click();
-		await expect(page.getByRole('button', { name: 'Anuluj wyzwanie', exact: true })).toBeEnabled();
+		await expect(page.getByRole('button', { name: 'Zaproś na rewanż', exact: true })).toBeEnabled();
+		await page.getByRole('button', { name: 'Zaproś na rewanż', exact: true }).click();
+		await expect(page.getByRole('button', { name: 'Anuluj zaproszenie', exact: true })).toBeEnabled();
 		await scores(page, 0, 0, USER_A, true);
 	} else {
 		await page.getByRole('button', { name: 'Dalej', exact: true }).click();

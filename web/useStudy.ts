@@ -38,7 +38,7 @@ export function useStudy(user: User, competitionId: string | null, onReview: (re
 	const live = useRef(session);
 	const generation = useRef(0);
 	const refill = useRef<symbol | null>(null);
-	const retryAction = useRef<(() => void) | null>(null);
+	const retryAction = useRef<ReviewInput['action'] | (() => void) | null>(null);
 	const clockOffset = useRef(0);
 	const key = `study-draft:${user.id}`;
 
@@ -168,7 +168,7 @@ export function useStudy(user: User, competitionId: string | null, onReview: (re
 		const reviewedCard = current.pending ? current.reviewedCard : {
 			id: item.card.id, version: item.card.version, pl: item.card.pl, ru: item.card.ru, examplePl: item.card.examplePl, exampleRu: item.card.exampleRu,
 		};
-		retryAction.current = () => void submit(action);
+		retryAction.current = action;
 		if (!persist({ ...current, pending, reviewedCard })) return;
 		const version = generation.current;
 		update({ pending, reviewedCard, state: 'checking', error: '' });
@@ -216,6 +216,10 @@ export function useStudy(user: User, competitionId: string | null, onReview: (re
 		direction: session.direction, savedDirection: session.savedDirection, retainedAnswer: session.retainedAnswer,
 		busy: session.state === 'checking' || session.savingDirection, locked: !!session.pending || session.savingDirection,
 		setAnswer, setDirection, check: () => submit('answer'), reveal: () => submit('reveal'), next,
-		retry: () => live.current.pending ? void submit('answer') : (retryAction.current ?? load)(),
+		retry: () => {
+			if (live.current.pending) void submit('answer');
+			else if (typeof retryAction.current === 'string') void submit(retryAction.current);
+			else (retryAction.current ?? load)();
+		},
 	};
 }
