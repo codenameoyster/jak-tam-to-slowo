@@ -1,5 +1,5 @@
 import type { Competition } from '../shared/types';
-import { Icon } from './Icon';
+import { CompetitionLadder } from './CompetitionLadder';
 
 const plurals = new Intl.PluralRules('pl');
 
@@ -19,11 +19,12 @@ export function CompetitionSummary({ userId, round, stale, busy, onOpen }: {
 	userId: string; round: Competition; stale: boolean; busy: boolean; onOpen(): void;
 }): React.JSX.Element {
 	return <button className="competition-summary" data-testid="competition-summary" disabled={busy} onClick={onOpen}>
-		<span className="competition-title"><Icon name="trophy" />Wyścig do {round.target}</span>
-		<span role="status" aria-atomic="true">
-			<span className="competition-score-row">{round.participants.map(person => <span key={person.id}>{person.displayName}{person.id === userId && ' (Ty)'}: {person.score}</span>)}</span>
-			<span className="hint">{competitionStatus(round)}</span>
+		<CompetitionLadder round={round} compact />
+		<span className="competition-summary-copy" role="status" aria-atomic="true">
+			<span className="competition-title">{round.status === 'active' ? <><span>Wyścig do {round.target}</span><span className="competition-summary-status">{competitionStatus(round)}</span></> : competitionStatus(round)}</span>
+			<span className="competition-score-row">{round.participants.map(person => <span key={person.id}>{person.displayName}{person.id === userId && ' (Ty)'}: <b>{person.score} / {round.target}</b></span>)}</span>
+			{stale && <span className="hint">Wynik może być nieaktualny</span>}
 		</span>
-		{stale && <span className="hint">Wynik może być nieaktualny</span>}
+		<span className="competition-chevron" aria-hidden="true" />
 	</button>;
 }
